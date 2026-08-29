@@ -1,15 +1,15 @@
 //! UI Automation COM engine and element inspector with 3-level tree walking.
 
-pub mod inspector;
 pub mod focus;
+pub mod inspector;
 pub mod mock;
 pub mod model;
 pub mod walker;
 
 pub use focus::{FocusChange, FocusChangeDetector, FocusEvidence};
 pub use inspector::UiaInspector;
-pub use mock::{create_mock_button, create_mock_password_box, MockUiaStore};
-pub use model::{control_type_id_to_name, UiaAncestorInfo, UiaElementInfo};
+pub use mock::{MockUiaStore, create_mock_button, create_mock_password_box};
+pub use model::{UiaAncestorInfo, UiaElementInfo, control_type_id_to_name};
 
 #[cfg(test)]
 mod tests {
@@ -25,7 +25,10 @@ mod tests {
         let inspector = UiaInspector::with_mock_store(store);
 
         // Point inside button
-        let target = inspector.inspect_point(120, 210).await.expect("Element found");
+        let target = inspector
+            .inspect_point(120, 210)
+            .await
+            .expect("Element found");
         assert_eq!(target.name.as_deref(), Some("SubmitBtn"));
         assert_eq!(target.control_type.as_deref(), Some("Button"));
         assert_eq!(target.automation_id.as_deref(), Some("btn_submit"));
@@ -35,11 +38,20 @@ mod tests {
         // Verify 3-level ancestor chain
         assert_eq!(target.ancestor_chain.len(), 3);
         assert_eq!(target.ancestor_chain[0].level, 1);
-        assert_eq!(target.ancestor_chain[0].control_type.as_deref(), Some("ToolBar"));
+        assert_eq!(
+            target.ancestor_chain[0].control_type.as_deref(),
+            Some("ToolBar")
+        );
         assert_eq!(target.ancestor_chain[1].level, 2);
-        assert_eq!(target.ancestor_chain[1].control_type.as_deref(), Some("Group"));
+        assert_eq!(
+            target.ancestor_chain[1].control_type.as_deref(),
+            Some("Group")
+        );
         assert_eq!(target.ancestor_chain[2].level, 3);
-        assert_eq!(target.ancestor_chain[2].control_type.as_deref(), Some("Window"));
+        assert_eq!(
+            target.ancestor_chain[2].control_type.as_deref(),
+            Some("Window")
+        );
 
         // Point outside button
         let outside = inspector.inspect_point(50, 50).await;
@@ -53,7 +65,10 @@ mod tests {
         store.add_element(pass_box);
 
         let inspector = UiaInspector::with_mock_store(store);
-        let target = inspector.inspect_point(150, 110).await.expect("Element found");
+        let target = inspector
+            .inspect_point(150, 110)
+            .await
+            .expect("Element found");
         assert!(target.is_password);
         assert_eq!(target.value.as_deref(), Some("[PASSWORD_REDACTED]"));
     }
@@ -81,18 +96,48 @@ mod tests {
             .await
             .expect("initial focus must be evidence");
         assert_eq!(gained.change, FocusChange::Gained);
-        assert_eq!(gained.target.as_ref().and_then(|target| target.value.as_deref()), None);
+        assert_eq!(
+            gained
+                .target
+                .as_ref()
+                .and_then(|target| target.value.as_deref()),
+            None
+        );
 
-        assert!(inspector.inspect_focus_change(&mut detector).await.is_none());
+        assert!(
+            inspector
+                .inspect_focus_change(&mut detector)
+                .await
+                .is_none()
+        );
 
-        store.set_focused(Some(create_mock_button("Cancel", "cancel_button", 10, 20, 100, 30)));
+        store.set_focused(Some(create_mock_button(
+            "Cancel",
+            "cancel_button",
+            10,
+            20,
+            100,
+            30,
+        )));
         let changed = inspector
             .inspect_focus_change(&mut detector)
             .await
             .expect("a different focused control must be evidence");
         assert_eq!(changed.change, FocusChange::Changed);
-        assert_eq!(changed.previous.as_ref().and_then(|target| target.automation_id.as_deref()), Some("save_button"));
-        assert_eq!(changed.target.as_ref().and_then(|target| target.automation_id.as_deref()), Some("cancel_button"));
+        assert_eq!(
+            changed
+                .previous
+                .as_ref()
+                .and_then(|target| target.automation_id.as_deref()),
+            Some("save_button")
+        );
+        assert_eq!(
+            changed
+                .target
+                .as_ref()
+                .and_then(|target| target.automation_id.as_deref()),
+            Some("cancel_button")
+        );
 
         store.set_focused(None);
         let lost = inspector
@@ -108,14 +153,26 @@ mod tests {
         let mut detector = FocusChangeDetector::new();
         let long_name = "x".repeat(600);
         let evidence = detector
-            .observe(Some(UiaElementInfo {
-                name: Some(long_name),
-                control_type: "Edit".to_string(),
-                automation_id: Some("field".to_string()),
-                ..Default::default()
-            }.to_target_metadata()))
+            .observe(Some(
+                UiaElementInfo {
+                    name: Some(long_name),
+                    control_type: "Edit".to_string(),
+                    automation_id: Some("field".to_string()),
+                    ..Default::default()
+                }
+                .to_target_metadata(),
+            ))
             .expect("initial focus must emit evidence");
 
-        assert_eq!(evidence.target.expect("target").name.expect("name").chars().count(), 256);
+        assert_eq!(
+            evidence
+                .target
+                .expect("target")
+                .name
+                .expect("name")
+                .chars()
+                .count(),
+            256
+        );
     }
 }

@@ -1,3 +1,4 @@
+use crate::focus::{FocusChangeDetector, FocusEvidence};
 use crate::mock::MockUiaStore;
 use crate::model::UiaElementInfo;
 use core_types::metadata::TargetMetadata;
@@ -6,7 +7,11 @@ use std::time::Duration;
 use tracing::{debug, warn};
 
 pub enum UiaRequest {
-    Point(i32, i32, tokio::sync::oneshot::Sender<Option<UiaElementInfo>>),
+    Point(
+        i32,
+        i32,
+        tokio::sync::oneshot::Sender<Option<UiaElementInfo>>,
+    ),
     Focused(tokio::sync::oneshot::Sender<Option<UiaElementInfo>>),
 }
 
@@ -100,7 +105,10 @@ impl UiaInspector {
                 Ok(Ok(None)) => None,
                 Ok(Err(_)) => None,
                 Err(_) => {
-                    debug!("UIA query at ({}, {}) timed out (>100ms), falling back", x, y);
+                    debug!(
+                        "UIA query at ({}, {}) timed out (>100ms), falling back",
+                        x, y
+                    );
                     None
                 }
             }
@@ -133,5 +141,17 @@ impl UiaInspector {
         } else {
             None
         }
+    }
+
+    /// Sample the focused element and emit bounded evidence only when it changed.
+    ///
+    /// Call this at semantic boundaries rather than on every pointer movement. The
+    /// native query retains its existing 100ms timeout, so a slow UIA provider cannot
+    /// stall event capture.
+    pub async fn inspect_focus_change(
+        &self,
+        detector: &mut FocusChangeDetector,
+    ) -> Option<FocusEvidence> {
+        detector.observe(self.inspect_focused().await)
     }
 }
