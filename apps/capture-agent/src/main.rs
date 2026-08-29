@@ -127,10 +127,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match msg {
                 IpcMessage::BrowserDomEvent(raw) => {
                     let mut raw = *raw;
-                    if raw.global_event_id.as_u64() == 0 {
-                        raw.global_event_id = core_types::id::GlobalEventId::new(
+                    if raw
+                        .global_event_id
+                        .is_none_or(|id| id.as_u64() == 0)
+                    {
+                        raw.global_event_id = Some(core_types::id::GlobalEventId::new(
                             global_seq_for_ipc.fetch_add(1, Ordering::Relaxed),
-                        );
+                        ));
                     }
                     let _ = pub_for_ipc.publish_event(raw);
                 }
