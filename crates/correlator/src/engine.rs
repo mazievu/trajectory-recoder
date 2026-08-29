@@ -3,7 +3,7 @@ use crate::scroll::ScrollBurstAggregator;
 use crate::typing::TypingBurstAggregator;
 use core_types::action::{
     ActionParameters, ActionType, CanonicalAction, CanonicalActionBuilder, ClickParams,
-    ClipboardParams, FileOperationParams, WindowLifecycleParams,
+    ClipboardParams, FileOperationParams, NavigationParams, WindowLifecycleParams,
 };
 use core_types::event::{RawEvent, RawEventPayload, RawWindowEvent};
 use core_types::id::{GlobalEventId, SessionId};
@@ -268,6 +268,38 @@ impl CorrelationEngine {
                 .build();
 
                 actions.push(action);
+            }
+            RawEventPayload::Browser(browser_event) => {
+                if matches!(
+                    browser_event.event_type.as_str(),
+                    "NAVIGATION" | "SPA_NAVIGATION" | "TAB_ACTIVATED"
+                ) {
+                    let (gid, sid) = self.next_ids();
+                    let target = TargetMetadata {
+                        name: browser_event.target_text.clone(),
+                        control_type: Some(browser_event.tag_name.clone()),
+                        automation_id: browser_event.target_id.clone(),
+                        class_name: browser_event.target_class.clone(),
+                        framework_id: Some("DOM".to_string()),
+                        ..Default::default()
+                    };
+                    let action = CanonicalActionBuilder::new(
+                        GlobalEventId::new(gid),
+                        self.session_id.clone(),
+                        sid,
+                        event.timestamp,
+                        ActionType::Navigate,
+                        ActionParameters::Navigation(NavigationParams {
+                            url: browser_event.url.clone(),
+                            transition_type: browser_event.event_type.clone(),
+                            is_spa_transition: browser_event.event_type == "SPA_NAVIGATION",
+                        }),
+                    )
+                    .target(target)
+                    .context(self.current_context.clone())
+                    .build();
+                    actions.push(action);
+                }
             }
             RawEventPayload::Clipboard(clip_event) => {
                 let (gid, sid) = self.next_ids();
