@@ -236,14 +236,18 @@ impl CorrelationEngine {
                 }
             }
             RawEventPayload::Window(win_event) => {
-                self.update_window_context(win_event);
-                let (gid, sid) = self.next_ids();
                 let action_type = match win_event.event_type.as_str() {
                     "FOREGROUND" => ActionType::WindowSwitch,
                     "OPEN" => ActionType::WindowOpen,
                     "CLOSE" => ActionType::WindowClose,
-                    _ => ActionType::WindowSwitch,
+                    // Window layout notifications are high-volume telemetry.
+                    // They must not overwrite foreground context or become a
+                    // semantic timeline action.
+                    _ => return actions,
                 };
+
+                self.update_window_context(win_event);
+                let (gid, sid) = self.next_ids();
 
                 let win_params = WindowLifecycleParams {
                     hwnd: win_event.hwnd,
