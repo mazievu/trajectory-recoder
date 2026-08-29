@@ -3,14 +3,14 @@ pub mod windows_hook {
     use core_types::metadata::MouseButton;
     use crossbeam_channel::Sender;
     use parking_lot::RwLock;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread::{self, JoinHandle};
     use tracing::{error, info, warn};
     use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::UI::WindowsAndMessaging::{
-        CallNextHookEx, DispatchMessageW, GetMessageW, PostThreadMessageW, SetWindowsHookExW,
-        TranslateMessage, UnhookWindowsHookEx, HHOOK, KBDLLHOOKSTRUCT, MSLLHOOKSTRUCT, MSG,
+        CallNextHookEx, DispatchMessageW, GetMessageW, HHOOK, KBDLLHOOKSTRUCT, MSG, MSLLHOOKSTRUCT,
+        PostThreadMessageW, SetWindowsHookExW, TranslateMessage, UnhookWindowsHookEx,
         WH_KEYBOARD_LL, WH_MOUSE_LL, WM_KEYDOWN, WM_KEYUP, WM_LBUTTONDOWN, WM_LBUTTONUP,
         WM_MBUTTONDOWN, WM_MBUTTONUP, WM_MOUSEHWHEEL, WM_MOUSEMOVE, WM_MOUSEWHEEL, WM_QUIT,
         WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SYSKEYDOWN, WM_SYSKEYUP, WM_XBUTTONDOWN, WM_XBUTTONUP,
@@ -156,7 +156,8 @@ pub mod windows_hook {
             let running_clone = running.clone();
 
             let handle = thread::spawn(move || {
-                let current_tid = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
+                let current_tid =
+                    unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
                 let _ = tid_tx.send(current_tid);
 
                 let mouse_hook: HHOOK;
@@ -191,7 +192,10 @@ pub mod windows_hook {
                     };
                 }
 
-                info!("Win32 low-level input hooks installed successfully on thread {}", current_tid);
+                info!(
+                    "Win32 low-level input hooks installed successfully on thread {}",
+                    current_tid
+                );
 
                 let mut msg = MSG::default();
                 while running_clone.load(Ordering::Relaxed) {

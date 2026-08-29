@@ -10,7 +10,14 @@ pub struct SpoolDirectoryManager {
 impl SpoolDirectoryManager {
     pub fn new(base_path: impl Into<PathBuf>) -> Result<Self, std::io::Error> {
         let base = base_path.into();
-        for state_dir in &["recording", "finalizing", "pending_upload", "uploading", "uploaded", "failed"] {
+        for state_dir in &[
+            "recording",
+            "finalizing",
+            "pending_upload",
+            "uploading",
+            "uploaded",
+            "failed",
+        ] {
             fs::create_dir_all(base.join(state_dir))?;
         }
         Ok(Self { base_path: base })
@@ -37,7 +44,10 @@ impl SpoolDirectoryManager {
     }
 
     /// Atomic transition: recording -> finalizing
-    pub fn transition_recording_to_finalizing(&self, session_id: &str) -> Result<PathBuf, std::io::Error> {
+    pub fn transition_recording_to_finalizing(
+        &self,
+        session_id: &str,
+    ) -> Result<PathBuf, std::io::Error> {
         let src = self.recording_dir().join(session_id);
         let dst = self.finalizing_dir().join(session_id);
         fs::rename(src, &dst)?;
@@ -45,7 +55,10 @@ impl SpoolDirectoryManager {
     }
 
     /// Atomic transition: finalizing -> pending_upload
-    pub fn transition_finalizing_to_pending(&self, session_id: &str) -> Result<PathBuf, std::io::Error> {
+    pub fn transition_finalizing_to_pending(
+        &self,
+        session_id: &str,
+    ) -> Result<PathBuf, std::io::Error> {
         let src = self.finalizing_dir().join(session_id);
         let dst = self.pending_upload_dir().join(session_id);
         fs::rename(src, &dst)?;
@@ -53,7 +66,10 @@ impl SpoolDirectoryManager {
     }
 
     /// Atomic transition: pending_upload -> uploaded
-    pub fn transition_pending_to_uploaded(&self, session_id: &str) -> Result<PathBuf, std::io::Error> {
+    pub fn transition_pending_to_uploaded(
+        &self,
+        session_id: &str,
+    ) -> Result<PathBuf, std::io::Error> {
         let src = self.pending_upload_dir().join(session_id);
         let dst = self.uploaded_dir().join(session_id);
         fs::rename(src, &dst)?;
@@ -68,7 +84,11 @@ impl SpoolDirectoryManager {
         for entry in entries.flatten() {
             let session_path = entry.path();
             if session_path.is_dir() {
-                let session_id = session_path.file_name().unwrap().to_string_lossy().to_string();
+                let session_id = session_path
+                    .file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .to_string();
 
                 // 1. Truncate incomplete raw NDJSON tail
                 let raw_file = session_path.join("events.raw.ndjson");
@@ -136,7 +156,10 @@ impl SpoolDirectoryManager {
     }
 
     /// Rebuild SQLite WAL index from NDJSON
-    pub fn rebuild_sqlite_index_from_ndjson(raw_ndjson: &Path, sqlite_path: &Path) -> Result<usize, String> {
+    pub fn rebuild_sqlite_index_from_ndjson(
+        raw_ndjson: &Path,
+        sqlite_path: &Path,
+    ) -> Result<usize, String> {
         let conn = Connection::open(sqlite_path).map_err(|e| e.to_string())?;
         conn.execute_batch(
             "
@@ -197,8 +220,15 @@ impl SpoolDirectoryManager {
                 }
                 if let Ok(val) = serde_json::from_str::<serde_json::Value>(trimmed) {
                     if let Some(eid) = val.get("global_event_id").and_then(|v| v.as_u64()) {
-                        let etype = val.get("event_type").and_then(|v| v.as_str()).unwrap_or("RAW");
-                        let mono = val.get("timestamp").and_then(|t| t.get("monotonic_ns")).and_then(|m| m.as_u64()).unwrap_or(0);
+                        let etype = val
+                            .get("event_type")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("RAW");
+                        let mono = val
+                            .get("timestamp")
+                            .and_then(|t| t.get("monotonic_ns"))
+                            .and_then(|m| m.as_u64())
+                            .unwrap_or(0);
                         tx.execute(
                             "INSERT OR REPLACE INTO raw_events (global_event_id, event_type, monotonic_ns, payload) VALUES (?1, ?2, ?3, ?4);",
                             rusqlite::params![eid as i64, etype, mono as i64, trimmed],

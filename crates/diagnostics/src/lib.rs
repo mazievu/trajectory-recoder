@@ -7,7 +7,9 @@ pub mod metrics;
 pub mod subscriber;
 
 pub use error_taxonomy::{DiagnosticEvent, DiagnosticSeverity, DiagnosticsError};
-pub use health::{HealthProbe, HealthStatus, ProbeResult, SystemHealthAggregator, SystemHealthReport};
+pub use health::{
+    HealthProbe, HealthStatus, ProbeResult, SystemHealthAggregator, SystemHealthReport,
+};
 pub use json_layer::{JsonPrivacyFormatter, StructuredLogRecord};
 pub use metrics::{LatencyMetrics, MetricsCollector, MetricsSnapshot, QueueDepths};
-pub use subscriber::{init_diagnostics, DiagnosticsConfig, DiagnosticsGuard};
+pub use subscriber::{DiagnosticsConfig, DiagnosticsGuard, init_diagnostics};

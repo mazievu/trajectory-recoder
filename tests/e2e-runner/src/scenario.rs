@@ -1,6 +1,6 @@
 use crate::agent_controller::SpoolDirectoryManager;
 use crate::harness_client::HarnessClient;
-use crate::mock_server::{start_mock_server, MockServerHandle};
+use crate::mock_server::{MockServerHandle, start_mock_server};
 use crate::verifiers::*;
 use harness_app::ScriptedAction;
 use serde::{Deserialize, Serialize};
@@ -68,7 +68,10 @@ impl ScenarioRunner {
             "started_at": chrono::Utc::now().to_rfc3339(),
             "status": "recording"
         });
-        fs::write(s_dir.join("manifest.json"), serde_json::to_string_pretty(&manifest_content)?)?;
+        fs::write(
+            s_dir.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest_content)?,
+        )?;
 
         Ok(s_dir)
     }
@@ -87,7 +90,9 @@ impl ScenarioRunner {
         Ok(())
     }
 
-    pub fn audit_19_attributes(canonical_events: &[serde_json::Value]) -> ReconstructionAuditReport {
+    pub fn audit_19_attributes(
+        canonical_events: &[serde_json::Value],
+    ) -> ReconstructionAuditReport {
         let attribute_definitions = [
             (1, "Application Launches", "APP_OPEN"),
             (2, "Application Switches", "WINDOW_SWITCH"),

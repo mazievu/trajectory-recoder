@@ -1,16 +1,17 @@
-use correlator::CorrelationEngine;
 use core_types::action::ActionType;
 use core_types::event::{EventSource, RawEvent, RawEventPayload, RawMouseEvent};
 use core_types::id::GlobalEventId;
 use core_types::metadata::{MouseButton, TargetMetadata};
 use core_types::timestamp::DualTimestamp;
-use std::sync::atomic::AtomicU64;
+use correlator::CorrelationEngine;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
 #[test]
 fn test_f30_timeline_action_flow() {
     let global_seq = Arc::new(AtomicU64::new(1));
-    let mut engine = CorrelationEngine::new("WS01_20260829_040000_a1b2c3d4", "alice", "WS01", global_seq);
+    let mut engine =
+        CorrelationEngine::new("WS01_20260829_040000_a1b2c3d4", "alice", "WS01", global_seq);
 
     let raw = RawEvent::new(
         1,
@@ -45,6 +46,9 @@ fn test_f30_timeline_action_flow() {
     let actions = engine.process_event(&raw, Some(target));
     assert_eq!(actions.len(), 1);
     assert_eq!(actions[0].action_type, ActionType::Click);
-    assert_eq!(actions[0].target.automation_id.as_deref(), Some("btn_submit"));
+    assert_eq!(
+        actions[0].target.automation_id.as_deref(),
+        Some("btn_submit")
+    );
     assert_eq!(actions[0].confidence, 1.0);
 }

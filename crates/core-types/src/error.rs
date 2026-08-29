@@ -21,34 +21,64 @@ pub enum ErrorSeverity {
 #[derive(Error, Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ErrorTaxonomy {
     #[error("Capture subsystem error [{severity:?}]: {message}")]
-    Capture { severity: ErrorSeverity, message: String },
+    Capture {
+        severity: ErrorSeverity,
+        message: String,
+    },
 
     #[error("UI Automation error [{severity:?}]: {message}")]
-    UiAutomation { severity: ErrorSeverity, message: String },
+    UiAutomation {
+        severity: ErrorSeverity,
+        message: String,
+    },
 
     #[error("Privacy engine violation [{severity:?}]: {message}")]
-    Privacy { severity: ErrorSeverity, message: String },
+    Privacy {
+        severity: ErrorSeverity,
+        message: String,
+    },
 
     #[error("Spool/Storage error [{severity:?}]: {message}")]
-    Spool { severity: ErrorSeverity, message: String },
+    Spool {
+        severity: ErrorSeverity,
+        message: String,
+    },
 
     #[error("Archive compression/packaging error [{severity:?}]: {message}")]
-    Archive { severity: ErrorSeverity, message: String },
+    Archive {
+        severity: ErrorSeverity,
+        message: String,
+    },
 
     #[error("Cryptography error [{severity:?}]: {message}")]
-    Crypto { severity: ErrorSeverity, message: String },
+    Crypto {
+        severity: ErrorSeverity,
+        message: String,
+    },
 
     #[error("Upload client error [{severity:?}]: {message}")]
-    Upload { severity: ErrorSeverity, message: String },
+    Upload {
+        severity: ErrorSeverity,
+        message: String,
+    },
 
     #[error("Ingestion server error [{severity:?}]: {message}")]
-    Server { severity: ErrorSeverity, message: String },
+    Server {
+        severity: ErrorSeverity,
+        message: String,
+    },
 
     #[error("IPC communication error [{severity:?}]: {message}")]
-    Ipc { severity: ErrorSeverity, message: String },
+    Ipc {
+        severity: ErrorSeverity,
+        message: String,
+    },
 
     #[error("Configuration error [{severity:?}]: {message}")]
-    Config { severity: ErrorSeverity, message: String },
+    Config {
+        severity: ErrorSeverity,
+        message: String,
+    },
 }
 
 #[cfg(test)]

@@ -161,7 +161,7 @@ pub fn default_server_config() -> ServerConfig {
         s3_region: "us-east-1".to_string(),
         s3_access_key: String::new(), // Must be set via S3_ACCESS_KEY env var
         s3_secret_key: String::new(), // Must be set via S3_SECRET_KEY env var
-        jwt_secret: String::new(), // Must be set via JWT_SECRET env var
+        jwt_secret: String::new(),    // Must be set via JWT_SECRET env var
     }
 }
 

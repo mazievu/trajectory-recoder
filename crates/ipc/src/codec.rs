@@ -1,8 +1,8 @@
-use bytes::{Buf, BufMut, BytesMut};
-use serde::{de::DeserializeOwned, Serialize};
-use tokio_util::codec::{Decoder, Encoder};
 use crate::error::IpcError;
 use crate::protocol::MAX_IPC_FRAME_SIZE;
+use bytes::{Buf, BufMut, BytesMut};
+use serde::{Serialize, de::DeserializeOwned};
+use tokio_util::codec::{Decoder, Encoder};
 
 /// Framed Codec: 4-byte big-endian length prefix + rmp-serde MessagePack payload.
 pub struct MsgPackCodec<T> {

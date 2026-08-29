@@ -1,7 +1,7 @@
+use crate::error_taxonomy::DiagnosticsError;
 use std::path::PathBuf;
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer};
-use crate::error_taxonomy::DiagnosticsError;
+use tracing_subscriber::{EnvFilter, Layer, layer::SubscriberExt, util::SubscriberInitExt};
 
 /// Guard holding background worker threads for non-blocking file loggers.
 /// Must be retained by main() until process termination.
@@ -42,8 +42,8 @@ impl Default for DiagnosticsConfig {
 /// 1. Console Layer: standard human-readable or JSON formatting.
 /// 2. Rolling File Layer: non-blocking daily rotation with custom privacy-sanitized JSON.
 pub fn init_diagnostics(config: &DiagnosticsConfig) -> Result<DiagnosticsGuard, DiagnosticsError> {
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(&config.log_level));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&config.log_level));
 
     let mut file_guard = None;
     let mut layers = Vec::new();
@@ -70,10 +70,12 @@ pub fn init_diagnostics(config: &DiagnosticsConfig) -> Result<DiagnosticsGuard, 
     // 2. Rolling file layer
     if config.log_to_file {
         if let Some(log_dir) = &config.log_directory {
-            std::fs::create_dir_all(log_dir)
-                .map_err(|e| DiagnosticsError::IoError(format!("Failed to create log directory: {e}")))?;
+            std::fs::create_dir_all(log_dir).map_err(|e| {
+                DiagnosticsError::IoError(format!("Failed to create log directory: {e}"))
+            })?;
 
-            let file_appender = tracing_appender::rolling::daily(log_dir, &config.log_filename_prefix);
+            let file_appender =
+                tracing_appender::rolling::daily(log_dir, &config.log_filename_prefix);
             let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
             file_guard = Some(guard);
 
@@ -91,7 +93,9 @@ pub fn init_diagnostics(config: &DiagnosticsConfig) -> Result<DiagnosticsGuard, 
         .with(env_filter)
         .with(layers)
         .try_init()
-        .map_err(|e| DiagnosticsError::InitError(format!("Failed to register tracing subscriber: {e}")))?;
+        .map_err(|e| {
+            DiagnosticsError::InitError(format!("Failed to register tracing subscriber: {e}"))
+        })?;
 
     tracing::info!(
         machine_id = %config.machine_id,
@@ -99,5 +103,7 @@ pub fn init_diagnostics(config: &DiagnosticsConfig) -> Result<DiagnosticsGuard, 
         "Diagnostics and tracing subsystem initialized successfully"
     );
 
-    Ok(DiagnosticsGuard { _file_guard: file_guard })
+    Ok(DiagnosticsGuard {
+        _file_guard: file_guard,
+    })
 }

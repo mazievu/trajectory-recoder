@@ -21,16 +21,28 @@ impl CryptoVerifier {
         nonce
     }
 
-    pub fn encrypt_payload(key: &[u8; 32], nonce_bytes: &[u8; 24], plaintext: &[u8]) -> Result<Vec<u8>, String> {
+    pub fn encrypt_payload(
+        key: &[u8; 32],
+        nonce_bytes: &[u8; 24],
+        plaintext: &[u8],
+    ) -> Result<Vec<u8>, String> {
         let cipher = XChaCha20Poly1305::new(key.into());
         let nonce = XNonce::from_slice(nonce_bytes);
-        cipher.encrypt(nonce, plaintext).map_err(|e| format!("Encryption error: {:?}", e))
+        cipher
+            .encrypt(nonce, plaintext)
+            .map_err(|e| format!("Encryption error: {:?}", e))
     }
 
-    pub fn decrypt_payload(key: &[u8; 32], nonce_bytes: &[u8; 24], ciphertext: &[u8]) -> Result<Vec<u8>, String> {
+    pub fn decrypt_payload(
+        key: &[u8; 32],
+        nonce_bytes: &[u8; 24],
+        ciphertext: &[u8],
+    ) -> Result<Vec<u8>, String> {
         let cipher = XChaCha20Poly1305::new(key.into());
         let nonce = XNonce::from_slice(nonce_bytes);
-        cipher.decrypt(nonce, ciphertext).map_err(|e| format!("Decryption error / authentication failed: {:?}", e))
+        cipher
+            .decrypt(nonce, ciphertext)
+            .map_err(|e| format!("Decryption error / authentication failed: {:?}", e))
     }
 
     pub fn compute_sha256_hex(data: &[u8]) -> String {
@@ -39,7 +51,11 @@ impl CryptoVerifier {
         format!("{:x}", hasher.finalize())
     }
 
-    pub fn verify_tamper_rejection(key: &[u8; 32], nonce: &[u8; 24], original_plaintext: &[u8]) -> Result<(), String> {
+    pub fn verify_tamper_rejection(
+        key: &[u8; 32],
+        nonce: &[u8; 24],
+        original_plaintext: &[u8],
+    ) -> Result<(), String> {
         let mut ciphertext = Self::encrypt_payload(key, nonce, original_plaintext)?;
         if ciphertext.is_empty() {
             return Err("Ciphertext unexpectedly empty".to_string());

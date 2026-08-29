@@ -30,7 +30,10 @@ impl HarnessClient {
         self.fixture.state.event_logs.clone()
     }
 
-    pub fn execute_script_file(&mut self, script_path: &Path) -> Result<Vec<HarnessEventLog>, String> {
+    pub fn execute_script_file(
+        &mut self,
+        script_path: &Path,
+    ) -> Result<Vec<HarnessEventLog>, String> {
         let content = std::fs::read_to_string(script_path)
             .map_err(|e| format!("Failed to read script {}: {}", script_path.display(), e))?;
         let actions: Vec<ScriptedAction> = serde_json::from_str(&content)

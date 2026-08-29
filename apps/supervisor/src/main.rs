@@ -3,11 +3,11 @@
 
 pub mod service;
 
-use diagnostics::{init_diagnostics, DiagnosticsConfig};
+use diagnostics::{DiagnosticsConfig, init_diagnostics};
 use ipc::{IpcMessage, IpcServer};
 use session::scan_and_recover_orphaned_sessions;
 use spool::{
-    evaluate_disk_level, DiskWatermarkConfig, DiskWatermarkLevel, SpoolDirectoryManager, SpoolState,
+    DiskWatermarkConfig, DiskWatermarkLevel, SpoolDirectoryManager, SpoolState, evaluate_disk_level,
 };
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -21,8 +21,8 @@ pub fn get_disk_free_space<P: AsRef<Path>>(path: P) -> Result<(u64, u64, u64), s
 
     #[cfg(windows)]
     {
-        use windows::core::HSTRING;
         use windows::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+        use windows::core::HSTRING;
 
         // Ensure path ends with slash or use canonical path for GetDiskFreeSpaceExW
         let path_str = if path.as_os_str().is_empty() {
@@ -72,7 +72,11 @@ pub fn get_disk_free_space<P: AsRef<Path>>(path: P) -> Result<(u64, u64, u64), s
             }
         }
         // Fallback default
-        Ok((500 * 1024 * 1024 * 1024, 200 * 1024 * 1024 * 1024, 200 * 1024 * 1024 * 1024))
+        Ok((
+            500 * 1024 * 1024 * 1024,
+            200 * 1024 * 1024 * 1024,
+            200 * 1024 * 1024 * 1024,
+        ))
     }
 }
 
@@ -93,7 +97,11 @@ pub async fn run_supervisor_loop(
                 "Recovered orphaned session {}: {} events restored, {} bytes corrupt tail truncated",
                 res.session_id, res.recovered_events, res.bytes_truncated
             );
-            let _ = spool_mgr.transition(&res.session_id, SpoolState::Recording, SpoolState::PendingUpload);
+            let _ = spool_mgr.transition(
+                &res.session_id,
+                SpoolState::Recording,
+                SpoolState::PendingUpload,
+            );
         }
     }
 
@@ -135,7 +143,10 @@ pub async fn run_supervisor_loop(
 
     // 3. Disk Pressure Watchdog loop
     let watermark_config = DiskWatermarkConfig::default();
-    info!("Supervisor disk watchdog loop initialized for spool {:?}", spool_root);
+    info!(
+        "Supervisor disk watchdog loop initialized for spool {:?}",
+        spool_root
+    );
 
     loop {
         tokio::select! {
@@ -240,7 +251,11 @@ mod tests {
     fn test_get_disk_free_space_real() {
         let temp_dir = tempfile::tempdir().expect("create tempdir");
         let result = get_disk_free_space(temp_dir.path());
-        assert!(result.is_ok(), "Querying disk space should succeed: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "Querying disk space should succeed: {:?}",
+            result.err()
+        );
         let (total, total_free, available) = result.unwrap();
         assert!(total > 0, "Total disk bytes must be > 0");
         assert!(total_free > 0, "Total free disk bytes must be > 0");
@@ -255,16 +270,17 @@ mod tests {
         let cancel_token = CancellationToken::new();
 
         let ct = cancel_token.clone();
-        let handle = tokio::spawn(async move {
-            run_supervisor_loop(spool_root, ct).await
-        });
+        let handle = tokio::spawn(async move { run_supervisor_loop(spool_root, ct).await });
 
         // Let the loop start, then cancel
         tokio::time::sleep(Duration::from_millis(50)).await;
         cancel_token.cancel();
 
         let res = handle.await.expect("join handle");
-        assert!(res.is_ok(), "Supervisor loop should terminate cleanly on cancellation");
+        assert!(
+            res.is_ok(),
+            "Supervisor loop should terminate cleanly on cancellation"
+        );
     }
 
     #[test]
@@ -273,16 +289,28 @@ mod tests {
         let total = 100_000_000_000u64; // 100 GB
 
         // Normal: 50% used
-        assert_eq!(evaluate_disk_level(total, 50_000_000_000, &config), DiskWatermarkLevel::Normal);
+        assert_eq!(
+            evaluate_disk_level(total, 50_000_000_000, &config),
+            DiskWatermarkLevel::Normal
+        );
 
         // LowWater: 72% used
-        assert_eq!(evaluate_disk_level(total, 28_000_000_000, &config), DiskWatermarkLevel::LowWater);
+        assert_eq!(
+            evaluate_disk_level(total, 28_000_000_000, &config),
+            DiskWatermarkLevel::LowWater
+        );
 
         // HighWater: 86% used
-        assert_eq!(evaluate_disk_level(total, 14_000_000_000, &config), DiskWatermarkLevel::HighWater);
+        assert_eq!(
+            evaluate_disk_level(total, 14_000_000_000, &config),
+            DiskWatermarkLevel::HighWater
+        );
 
         // Critical: 95% used
-        assert_eq!(evaluate_disk_level(total, 5_000_000_000, &config), DiskWatermarkLevel::Critical);
+        assert_eq!(
+            evaluate_disk_level(total, 5_000_000_000, &config),
+            DiskWatermarkLevel::Critical
+        );
     }
 
     #[test]
@@ -321,9 +349,7 @@ mod tests {
         let ct = cancel_token.clone();
         let spool_root_clone = spool_root.clone();
 
-        let handle = tokio::spawn(async move {
-            run_supervisor_loop(spool_root_clone, ct).await
-        });
+        let handle = tokio::spawn(async move { run_supervisor_loop(spool_root_clone, ct).await });
 
         // Give the loop time to run startup crash scan
         tokio::time::sleep(Duration::from_millis(150)).await;
@@ -332,7 +358,9 @@ mod tests {
 
         // Verify that the orphaned session was transitioned from recording to pending_upload
         let pending_sessions = spool_mgr.list_sessions(SpoolState::PendingUpload).unwrap();
-        assert!(pending_sessions.contains(&orphan_sid.to_string()), "Orphaned session must be moved to pending_upload");
+        assert!(
+            pending_sessions.contains(&orphan_sid.to_string()),
+            "Orphaned session must be moved to pending_upload"
+        );
     }
 }
-

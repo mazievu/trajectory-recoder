@@ -35,8 +35,16 @@ impl MonitorBounds {
 
     /// Normalize a physical point to [0.0, 1.0] relative to this monitor.
     pub fn normalize(&self, px: i32, py: i32) -> (f32, f32) {
-        let w = if self.width > 0 { self.width as f32 } else { 1.0 };
-        let h = if self.height > 0 { self.height as f32 } else { 1.0 };
+        let w = if self.width > 0 {
+            self.width as f32
+        } else {
+            1.0
+        };
+        let h = if self.height > 0 {
+            self.height as f32
+        } else {
+            1.0
+        };
 
         let nx = ((px - self.x) as f32 / w).clamp(0.0, 1.0);
         let ny = ((py - self.y) as f32 / h).clamp(0.0, 1.0);
@@ -44,7 +52,12 @@ impl MonitorBounds {
     }
 
     pub fn to_bounding_rect(&self) -> BoundingRect {
-        BoundingRect::new(self.x, self.y, self.x + self.width as i32, self.y + self.height as i32)
+        BoundingRect::new(
+            self.x,
+            self.y,
+            self.x + self.width as i32,
+            self.y + self.height as i32,
+        )
     }
 }
 
@@ -99,7 +112,11 @@ impl CoordinateMapper {
         }
 
         // 2. Fallback to primary monitor or first monitor
-        if let Some(primary) = monitors.iter().find(|m| m.is_primary).or_else(|| monitors.first()) {
+        if let Some(primary) = monitors
+            .iter()
+            .find(|m| m.is_primary)
+            .or_else(|| monitors.first())
+        {
             let (nx, ny) = primary.normalize(px, py);
             (primary.monitor_id, nx, ny, Point2D::new(px, py, nx, ny))
         } else {

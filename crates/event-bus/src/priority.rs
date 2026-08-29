@@ -79,7 +79,9 @@ impl Priority {
 }
 
 /// Dynamic shedding level to shed lower priority queues during backpressure or disk pressure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 pub enum PriorityShedMode {
     /// Normal operation: No shedding unless channel capacity is exceeded.
     #[default]

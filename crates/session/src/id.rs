@@ -22,7 +22,10 @@ impl SessionIdGenerator {
         let hour_str = time.format("%H0000").to_string();
         let rand_suffix = &uuid::Uuid::new_v4().to_string()[..8];
 
-        let id_str = format!("{}_{}_{}_{}", self.machine_id, date_str, hour_str, rand_suffix);
+        let id_str = format!(
+            "{}_{}_{}_{}",
+            self.machine_id, date_str, hour_str, rand_suffix
+        );
         SessionId::new(id_str)
     }
 

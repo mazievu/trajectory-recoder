@@ -24,7 +24,11 @@ pub fn scan_and_recover_orphaned_sessions(recording_dir: impl AsRef<Path>) -> Ve
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                let sid = path.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string();
+                let sid = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown")
+                    .to_string();
                 let ndjson_path = path.join("events.raw.ndjson");
                 let db_path = path.join("session.db");
 

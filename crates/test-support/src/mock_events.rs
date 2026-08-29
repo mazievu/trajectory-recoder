@@ -1,10 +1,10 @@
-use rand::{Rng, SeedableRng};
-use rand_chacha::ChaCha8Rng;
 use core_types::{
     ActionType, BoundingBox, CanonicalAction, DualTimestamp, EventSource, GlobalEventId,
-    MouseButton, Point2D, RawEvent, RawEventPayload, RawMouseEvent, SessionId, TargetMetadata,
-    SCHEMA_IDENTIFIER, SCHEMA_VERSION,
+    MouseButton, Point2D, RawEvent, RawEventPayload, RawMouseEvent, SCHEMA_IDENTIFIER,
+    SCHEMA_VERSION, SessionId, TargetMetadata,
 };
+use rand::{Rng, SeedableRng};
+use rand_chacha::ChaCha8Rng;
 
 pub struct MockEventGenerator {
     rng: ChaCha8Rng,
@@ -68,7 +68,11 @@ impl MockEventGenerator {
         }
     }
 
-    pub fn generate_canonical_action(&mut self, action_type: ActionType, target_name: &str) -> CanonicalAction {
+    pub fn generate_canonical_action(
+        &mut self,
+        action_type: ActionType,
+        target_name: &str,
+    ) -> CanonicalAction {
         let global_id = self.current_global_id;
         let session_event_id = self.current_session_event_id;
         self.current_global_id += 1;
@@ -90,8 +94,21 @@ impl MockEventGenerator {
                 automation_id: Some(format!("btn_{target_name}")),
                 class_name: Some("WpfButton".to_string()),
                 framework_id: Some("WPF".to_string()),
-                bounding_box: Some(BoundingBox { x: 100, y: 200, width: 80, height: 30 }),
-                bounding_rect: Some(BoundingBox { x: 100, y: 200, width: 80, height: 30 }.to_bounding_rect()),
+                bounding_box: Some(BoundingBox {
+                    x: 100,
+                    y: 200,
+                    width: 80,
+                    height: 30,
+                }),
+                bounding_rect: Some(
+                    BoundingBox {
+                        x: 100,
+                        y: 200,
+                        width: 80,
+                        height: 30,
+                    }
+                    .to_bounding_rect(),
+                ),
                 is_password: false,
                 is_enabled: Some(true),
                 is_keyboard_focusable: Some(true),
@@ -113,7 +130,13 @@ impl MockEventGenerator {
                 window: core_types::WindowContext {
                     hwnd: 0x1004A,
                     title: "Test Application".to_string(),
-                    bounds: BoundingBox { x: 0, y: 0, width: 1024, height: 768 }.to_bounding_rect(),
+                    bounds: BoundingBox {
+                        x: 0,
+                        y: 0,
+                        width: 1024,
+                        height: 768,
+                    }
+                    .to_bounding_rect(),
                     is_maximized: false,
                     is_minimized: false,
                     is_foreground: true,

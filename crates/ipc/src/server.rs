@@ -10,7 +10,7 @@ use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 use crate::codec::MsgPackCodec;
 use crate::error::IpcError;
 use crate::protocol::IpcMessage;
-use crate::security::{PipeSecurityAttributes, DEFAULT_PIPE_SDDL};
+use crate::security::{DEFAULT_PIPE_SDDL, PipeSecurityAttributes};
 
 pub struct IpcServer {
     pipe_name: String,
@@ -47,7 +47,11 @@ impl IpcServer {
             let mut is_first_instance = true;
 
             loop {
-                let mut server = match Self::create_pipe_instance(&self.pipe_name, is_first_instance, &sec_attrs) {
+                let mut server = match Self::create_pipe_instance(
+                    &self.pipe_name,
+                    is_first_instance,
+                    &sec_attrs,
+                ) {
                     Ok(s) => s,
                     Err(e) => {
                         error!("Failed to create named pipe instance: {e}. Retrying in 1s...");
@@ -125,7 +129,9 @@ impl IpcServer {
                 pipe_name,
                 sec_attrs.as_raw_ptr() as *mut std::ffi::c_void,
             )
-            .map_err(|e| IpcError::PipeCreationError(format!("CreateNamedPipe failed for {pipe_name}: {e}")))
+            .map_err(|e| {
+                IpcError::PipeCreationError(format!("CreateNamedPipe failed for {pipe_name}: {e}"))
+            })
         }
     }
 }

@@ -8,11 +8,10 @@ use core_types::action::{
 use core_types::event::{RawEvent, RawEventPayload, RawWindowEvent};
 use core_types::id::{GlobalEventId, SessionId};
 use core_types::metadata::{
-    ApplicationContext, ContextMetadata, MouseButton, Point2D, TargetMetadata,
-    WindowContext,
+    ApplicationContext, ContextMetadata, MouseButton, Point2D, TargetMetadata, WindowContext,
 };
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Central correlation engine transforming multi-source raw events into CanonicalActions.
 pub struct CorrelationEngine {
@@ -381,12 +380,18 @@ impl CorrelationEngine {
     pub fn periodic_flush(&mut self) -> Vec<CanonicalAction> {
         let mut actions = Vec::new();
         let (gid1, sid1) = self.next_ids();
-        if let Some(t_action) = self.typing_aggregator.check_timeout(&self.session_id, gid1, sid1) {
+        if let Some(t_action) = self
+            .typing_aggregator
+            .check_timeout(&self.session_id, gid1, sid1)
+        {
             actions.push(t_action);
         }
 
         let (gid2, sid2) = self.next_ids();
-        if let Some(s_action) = self.scroll_aggregator.check_timeout(&self.session_id, gid2, sid2) {
+        if let Some(s_action) = self
+            .scroll_aggregator
+            .check_timeout(&self.session_id, gid2, sid2)
+        {
             actions.push(s_action);
         }
 

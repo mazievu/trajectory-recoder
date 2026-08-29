@@ -32,7 +32,7 @@ impl KeyboardModifierTracker {
             0x5B => self.l_win = is_down,         // VK_LWIN
             0x5C => self.r_win = is_down,         // VK_RWIN
             0x14 if is_down => self.caps_lock = !self.caps_lock, // VK_CAPITAL toggle
-            0x90 if is_down => self.num_lock = !self.num_lock,   // VK_NUMLOCK toggle
+            0x90 if is_down => self.num_lock = !self.num_lock, // VK_NUMLOCK toggle
             _ => {}
         }
     }

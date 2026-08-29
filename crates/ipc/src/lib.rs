@@ -11,8 +11,8 @@ pub use client::ReconnectingIpcClient;
 pub use codec::MsgPackCodec;
 pub use error::IpcError;
 pub use protocol::{
-    AgentStatus, IpcEnvelope, IpcMessage, AGENT_IPC_PIPE_NAME, BROWSER_HOST_PIPE_NAME,
+    AGENT_IPC_PIPE_NAME, AgentStatus, BROWSER_HOST_PIPE_NAME, IpcEnvelope, IpcMessage,
     MAX_IPC_FRAME_SIZE, TRAY_IPC_PIPE_NAME,
 };
-pub use security::{PipeSecurityAttributes, DEFAULT_PIPE_SDDL};
+pub use security::{DEFAULT_PIPE_SDDL, PipeSecurityAttributes};
 pub use server::IpcServer;

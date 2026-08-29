@@ -35,7 +35,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 println!("Usage: trajectory-harness [OPTIONS]");
                 println!("Options:");
                 println!("  --mode <headless|interactive>   Execution mode (default: headless)");
-                println!("  --script <path.json>            Run a predefined JSON script of actions");
+                println!(
+                    "  --script <path.json>            Run a predefined JSON script of actions"
+                );
                 println!("  --output <path.json>            Save fixture event logs to file");
                 println!("  --help, -h                      Show this help message");
                 return Ok(());
@@ -52,8 +54,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("[trajectory-harness] Loading scenario script from '{}'", sp);
         let content = fs::read_to_string(Path::new(sp))?;
         let actions: Vec<ScriptedAction> = serde_json::from_str(&content)?;
-        println!("[trajectory-harness] Executing {} scripted actions...", actions.len());
-        fixture.execute_script(&actions)
+        println!(
+            "[trajectory-harness] Executing {} scripted actions...",
+            actions.len()
+        );
+        fixture
+            .execute_script(&actions)
             .map_err(|e| format!("Script execution failed: {}", e))?;
         println!("[trajectory-harness] Script completed successfully.");
     } else {
@@ -105,7 +111,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 delay_ms: None,
             },
         ];
-        fixture.execute_script(&default_actions)
+        fixture
+            .execute_script(&default_actions)
             .map_err(|e| format!("Default actions failed: {}", e))?;
         println!("[trajectory-harness] Default smoke test finished.");
     }

@@ -5,15 +5,13 @@ pub mod mock;
 pub mod screenshot;
 pub mod video;
 
-pub use diff::{compute_visual_diff, VisualDiffResult};
+pub use diff::{VisualDiffResult, compute_visual_diff};
 pub use mock::MockScreenCapturer;
 pub use screenshot::{
-    bgra_to_rgba, encode_webp, pixel_diff_ratio, CapturedFrame, ScreenCaptureBackend,
-    ScreenshotPipeline, ScreenshotResult,
+    CapturedFrame, ScreenCaptureBackend, ScreenshotPipeline, ScreenshotResult, bgra_to_rgba,
+    encode_webp, pixel_diff_ratio,
 };
-pub use video::{
-    VideoFrameIndexEntry, VideoPipelineConfig, VideoRecorder, VideoSegmentMetadata,
-};
+pub use video::{VideoFrameIndexEntry, VideoPipelineConfig, VideoRecorder, VideoSegmentMetadata};
 
 #[cfg(test)]
 mod tests {
@@ -25,7 +23,13 @@ mod tests {
         let frame1 = capturer.capture_frame(1, 1_000_000_000, 100);
         let frame2 = capturer.capture_frame(1, 1_200_000_000, 100);
 
-        let diff = compute_visual_diff(&frame1.data, &frame2.data, frame1.width, frame1.height, 0.005);
+        let diff = compute_visual_diff(
+            &frame1.data,
+            &frame2.data,
+            frame1.width,
+            frame1.height,
+            0.005,
+        );
         assert!(diff.is_stabilized);
         assert_eq!(diff.changed_pixel_count, 0);
     }

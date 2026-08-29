@@ -14,7 +14,8 @@ fn test_ndjson_verifier_valid_and_monotonic() {
     writeln!(file, r#"{{"global_event_id": 1003, "event_type": "SCROLL", "timestamp": {{"wall_time_utc": "2026-08-29T03:00:02Z", "monotonic_ns": 3000000, "timezone_offset_secs": 0}}}}"#).unwrap();
     file.flush().unwrap();
 
-    let report = NdjsonVerifier::verify_raw_ndjson(&ndjson_path, &["SecretPassword", "1234-5678"]).unwrap();
+    let report =
+        NdjsonVerifier::verify_raw_ndjson(&ndjson_path, &["SecretPassword", "1234-5678"]).unwrap();
     assert_eq!(report.total_lines, 3);
     assert_eq!(report.valid_lines, 3);
     assert_eq!(report.corrupted_lines, 0);
@@ -30,7 +31,11 @@ fn test_ndjson_verifier_detects_plaintext_leak() {
     let ndjson_path = tmp.path().join("events.raw.ndjson");
 
     let mut file = File::create(&ndjson_path).unwrap();
-    writeln!(file, r#"{{"global_event_id": 2001, "event_type": "TYPE", "text": "SecretPassword123"}}"#).unwrap();
+    writeln!(
+        file,
+        r#"{{"global_event_id": 2001, "event_type": "TYPE", "text": "SecretPassword123"}}"#
+    )
+    .unwrap();
     file.flush().unwrap();
 
     let report = NdjsonVerifier::verify_raw_ndjson(&ndjson_path, &["SecretPassword123"]).unwrap();

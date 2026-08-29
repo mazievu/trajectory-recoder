@@ -4,8 +4,8 @@ use core_types::metadata::{BoundingRect, MouseButton};
 use event_bus::{EventBus, EventBusConfig, Priority, PublishResult};
 use file_events_win::FileWatcherManager;
 use input_win::InputHookManager;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 use window_win::{WindowState, WindowTracker};
@@ -171,7 +171,10 @@ fn test_end_to_end_capture_core_event_bus_flow() {
             RawEventPayload::File(f) => {
                 assert_eq!(*p, Priority::P1_Window);
                 assert_eq!(f.action, "CREATED");
-                assert_eq!(f.file_path, "C:\\Users\\test_engineer\\Documents\\trajectory.json");
+                assert_eq!(
+                    f.file_path,
+                    "C:\\Users\\test_engineer\\Documents\\trajectory.json"
+                );
                 has_file = true;
             }
             _ => {}

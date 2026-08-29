@@ -27,7 +27,7 @@ pub enum DiagnosticsError {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DiagnosticEvent {
-    pub schema: String, // "gtf.trajectory.diagnostic"
+    pub schema: String,         // "gtf.trajectory.diagnostic"
     pub schema_version: String, // "1.0"
     pub event_id: u64,
     pub timestamp_utc: chrono::DateTime<chrono::Utc>,

@@ -50,20 +50,48 @@ impl Default for HarnessFixture {
 impl HarnessFixture {
     pub fn new() -> Self {
         let mut buttons = HashMap::new();
-        buttons.insert("btn_submit".to_string(), ButtonControl::new("btn_submit", "Submit", ButtonKind::Submit));
-        buttons.insert("btn_toggle".to_string(), ButtonControl::new("btn_toggle", "Toggle Mode", ButtonKind::Toggle));
-        buttons.insert("btn_cancel".to_string(), ButtonControl::new("btn_cancel", "Cancel", ButtonKind::Push));
+        buttons.insert(
+            "btn_submit".to_string(),
+            ButtonControl::new("btn_submit", "Submit", ButtonKind::Submit),
+        );
+        buttons.insert(
+            "btn_toggle".to_string(),
+            ButtonControl::new("btn_toggle", "Toggle Mode", ButtonKind::Toggle),
+        );
+        buttons.insert(
+            "btn_cancel".to_string(),
+            ButtonControl::new("btn_cancel", "Cancel", ButtonKind::Push),
+        );
 
         let mut inputs = HashMap::new();
-        inputs.insert("txt_username".to_string(), InputControl::new("txt_username", "Username", InputKind::SingleLine));
-        inputs.insert("txt_password".to_string(), InputControl::new("txt_password", "Password", InputKind::Password));
-        inputs.insert("txt_credit_card".to_string(), InputControl::new("txt_credit_card", "Credit Card", InputKind::CreditCard));
-        inputs.insert("txt_notes".to_string(), InputControl::new("txt_notes", "Notes", InputKind::MultiLine));
+        inputs.insert(
+            "txt_username".to_string(),
+            InputControl::new("txt_username", "Username", InputKind::SingleLine),
+        );
+        inputs.insert(
+            "txt_password".to_string(),
+            InputControl::new("txt_password", "Password", InputKind::Password),
+        );
+        inputs.insert(
+            "txt_credit_card".to_string(),
+            InputControl::new("txt_credit_card", "Credit Card", InputKind::CreditCard),
+        );
+        inputs.insert(
+            "txt_notes".to_string(),
+            InputControl::new("txt_notes", "Notes", InputKind::MultiLine),
+        );
 
         let mut scrolls = HashMap::new();
         scrolls.insert(
             "pnl_scrollable".to_string(),
-            ScrollControl::new("pnl_scrollable", "Data Grid Viewport", 800.0, 600.0, 800.0, 5000.0),
+            ScrollControl::new(
+                "pnl_scrollable",
+                "Data Grid Viewport",
+                800.0,
+                600.0,
+                800.0,
+                5000.0,
+            ),
         );
 
         let drag_drop = DragDropZone::new("drag_source_item", "drop_target_zone");
@@ -85,33 +113,78 @@ impl HarnessFixture {
             "Trajectory Test Harness Application",
             "HarnessWindow",
             UiaControlType::Window,
-            UiaBoundingRect { left: 100.0, top: 100.0, width: 1024.0, height: 768.0 },
+            UiaBoundingRect {
+                left: 100.0,
+                top: 100.0,
+                width: 1024.0,
+                height: 768.0,
+            },
         );
 
         // Populate UIA children
         uia_root.children.push(UiaElementNode::new(
-            "btn_submit", "Submit", "Button", UiaControlType::Button,
-            UiaBoundingRect { left: 120.0, top: 150.0, width: 100.0, height: 35.0 },
+            "btn_submit",
+            "Submit",
+            "Button",
+            UiaControlType::Button,
+            UiaBoundingRect {
+                left: 120.0,
+                top: 150.0,
+                width: 100.0,
+                height: 35.0,
+            },
         ));
         uia_root.children.push(UiaElementNode::new(
-            "btn_toggle", "Toggle Mode", "Button", UiaControlType::Button,
-            UiaBoundingRect { left: 230.0, top: 150.0, width: 120.0, height: 35.0 },
+            "btn_toggle",
+            "Toggle Mode",
+            "Button",
+            UiaControlType::Button,
+            UiaBoundingRect {
+                left: 230.0,
+                top: 150.0,
+                width: 120.0,
+                height: 35.0,
+            },
         ));
         uia_root.children.push(UiaElementNode::new(
-            "txt_username", "Username", "Edit", UiaControlType::Edit,
-            UiaBoundingRect { left: 120.0, top: 200.0, width: 250.0, height: 30.0 },
+            "txt_username",
+            "Username",
+            "Edit",
+            UiaControlType::Edit,
+            UiaBoundingRect {
+                left: 120.0,
+                top: 200.0,
+                width: 250.0,
+                height: 30.0,
+            },
         ));
 
         let mut pwd_node = UiaElementNode::new(
-            "txt_password", "Password", "Edit", UiaControlType::Edit,
-            UiaBoundingRect { left: 120.0, top: 250.0, width: 250.0, height: 30.0 },
+            "txt_password",
+            "Password",
+            "Edit",
+            UiaControlType::Edit,
+            UiaBoundingRect {
+                left: 120.0,
+                top: 250.0,
+                width: 250.0,
+                height: 30.0,
+            },
         );
         pwd_node.is_password = true;
         uia_root.children.push(pwd_node);
 
         uia_root.children.push(UiaElementNode::new(
-            "pnl_scrollable", "Data Grid Viewport", "Pane", UiaControlType::Pane,
-            UiaBoundingRect { left: 400.0, top: 150.0, width: 500.0, height: 400.0 },
+            "pnl_scrollable",
+            "Data Grid Viewport",
+            "Pane",
+            UiaControlType::Pane,
+            UiaBoundingRect {
+                left: 400.0,
+                top: 150.0,
+                width: 500.0,
+                height: 400.0,
+            },
         ));
 
         Self {
@@ -192,7 +265,10 @@ impl HarnessFixture {
                 let dropped = self.state.drag_drop.complete_drop();
                 self.state.event_logs.push(HarnessEventLog {
                     timestamp: ts,
-                    control_id: format!("{}_to_{}", self.state.drag_drop.source_id, self.state.drag_drop.target_id),
+                    control_id: format!(
+                        "{}_to_{}",
+                        self.state.drag_drop.source_id, self.state.drag_drop.target_id
+                    ),
                     event_type: "drag_drop".to_string(),
                     payload: serde_json::json!({ "dropped": dropped }),
                 });

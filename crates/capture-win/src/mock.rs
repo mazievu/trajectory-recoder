@@ -27,12 +27,7 @@ impl MockScreenCapturer {
             format: "webp",
             data,
             timestamp_ns,
-            bounds: BoundingRect::new(
-                0,
-                0,
-                self.default_width as i32,
-                self.default_height as i32,
-            ),
+            bounds: BoundingRect::new(0, 0, self.default_width as i32, self.default_height as i32),
         }
     }
 

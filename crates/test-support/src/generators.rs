@@ -2,9 +2,8 @@ use core_types::{ActionType, MouseButton, Point2D};
 use proptest::prelude::*;
 
 pub fn point2d_strategy() -> impl Strategy<Value = Point2D> {
-    (0..1920i32, 0..1080i32).prop_map(|(x, y)| {
-        Point2D::new(x, y, x as f32 / 1920.0, y as f32 / 1080.0)
-    })
+    (0..1920i32, 0..1080i32)
+        .prop_map(|(x, y)| Point2D::new(x, y, x as f32 / 1920.0, y as f32 / 1080.0))
 }
 
 pub fn mouse_button_strategy() -> impl Strategy<Value = MouseButton> {

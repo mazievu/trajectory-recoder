@@ -20,19 +20,24 @@ impl ConfigFileWatcher {
     where
         F: Fn(Arc<crate::schema::RecorderConfig>) + Send + Sync + 'static,
     {
-        let canonical_path = config_path.canonicalize().unwrap_or_else(|_| config_path.clone());
+        let canonical_path = config_path
+            .canonicalize()
+            .unwrap_or_else(|_| config_path.clone());
         let mut last_event_time = Instant::now() - Duration::from_secs(10);
         let debounce_duration = Duration::from_millis(500);
 
         let mut watcher = RecommendedWatcher::new(
             move |res: Result<Event, notify::Error>| match res {
                 Ok(event) => {
-                    let is_modify_or_create = matches!(
-                        event.kind,
-                        EventKind::Modify(_) | EventKind::Create(_)
-                    );
+                    let is_modify_or_create =
+                        matches!(event.kind, EventKind::Modify(_) | EventKind::Create(_));
 
-                    if is_modify_or_create && event.paths.iter().any(|p| p.ends_with(&canonical_path) || p == &canonical_path) {
+                    if is_modify_or_create
+                        && event
+                            .paths
+                            .iter()
+                            .any(|p| p.ends_with(&canonical_path) || p == &canonical_path)
+                    {
                         let now = Instant::now();
                         if now.duration_since(last_event_time) >= debounce_duration {
                             last_event_time = now;

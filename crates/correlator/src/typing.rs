@@ -72,7 +72,8 @@ impl TypingBurstAggregator {
         // Navigation and other non-text keys close a pending text burst. They
         // are represented separately by the correlator when supported.
         if !is_text_input_key(vk_code) && !matches!(vk_code, 0x08 | 0x0D) {
-            return completed_action.or_else(|| self.flush(session_id, next_global_id, session_event_id));
+            return completed_action
+                .or_else(|| self.flush(session_id, next_global_id, session_event_id));
         }
 
         // Add to active burst or start new burst. The buffer intentionally

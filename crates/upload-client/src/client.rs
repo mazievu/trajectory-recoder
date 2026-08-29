@@ -340,7 +340,9 @@ impl UploadClient {
                 // Exponential backoff with random jitter: (rand::random::<f64>() * 0.25 * backoff_ms as f64) as u64
                 let jitter = (rand::random::<f64>() * 0.25 * backoff_ms as f64) as u64;
                 tokio::time::sleep(Duration::from_millis(backoff_ms + jitter)).await;
-                backoff_ms = (backoff_ms * 2).min(self.config.max_retry_backoff_ms).min(60_000);
+                backoff_ms = (backoff_ms * 2)
+                    .min(self.config.max_retry_backoff_ms)
+                    .min(60_000);
             }
         }
 
@@ -410,7 +412,10 @@ impl UploadClient {
         session_id: &str,
         token: &str,
     ) -> Result<CompleteSessionResponse, UploadError> {
-        let url = format!("{}/api/v1/sessions/{}/complete", self.server_base_url, session_id);
+        let url = format!(
+            "{}/api/v1/sessions/{}/complete",
+            self.server_base_url, session_id
+        );
         let mut req = self.client.post(&url);
         if !token.is_empty() {
             req = req.bearer_auth(token);

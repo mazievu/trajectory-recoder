@@ -19,13 +19,7 @@ mod tests {
 
     #[test]
     fn test_monitor_topology_find_monitor() {
-        let m1 = MonitorInfo::new(
-            0,
-            BoundingRect::new(0, 0, 1920, 1080),
-            true,
-            96,
-            "DISPLAY1",
-        );
+        let m1 = MonitorInfo::new(0, BoundingRect::new(0, 0, 1920, 1080), true, 96, "DISPLAY1");
         let m2 = MonitorInfo::new(
             1,
             BoundingRect::new(1920, 0, 3840, 1080),

@@ -3,7 +3,8 @@ use tempfile::TempDir;
 
 #[test]
 fn test_f23_zstd_compression_roundtrip() {
-    let original = b"Sample trajectory manifest and ndjson lines to be compressed by Zstandard engine.";
+    let original =
+        b"Sample trajectory manifest and ndjson lines to be compressed by Zstandard engine.";
 
     // Compress
     let mut encoder = zstd::Encoder::new(Vec::new(), 3).unwrap();

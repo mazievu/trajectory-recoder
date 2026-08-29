@@ -2,20 +2,20 @@
 pub mod native_watcher {
     use crossbeam_channel::Sender;
     use std::path::{Path, PathBuf};
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread::{self, JoinHandle};
     use tracing::{error, info, warn};
-    use windows::core::PCWSTR;
     use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
     use windows::Win32::Storage::FileSystem::{
-        CreateFileW, ReadDirectoryChangesW, FILE_ACTION_ADDED, FILE_ACTION_MODIFIED,
-        FILE_ACTION_REMOVED, FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME,
-        FILE_FLAG_BACKUP_SEMANTICS, FILE_LIST_DIRECTORY, FILE_NOTIFY_CHANGE_CREATION,
-        FILE_NOTIFY_CHANGE_DIR_NAME, FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE,
-        FILE_NOTIFY_CHANGE_SIZE, FILE_NOTIFY_INFORMATION, FILE_SHARE_DELETE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, OPEN_EXISTING,
+        CreateFileW, FILE_ACTION_ADDED, FILE_ACTION_MODIFIED, FILE_ACTION_REMOVED,
+        FILE_ACTION_RENAMED_NEW_NAME, FILE_ACTION_RENAMED_OLD_NAME, FILE_FLAG_BACKUP_SEMANTICS,
+        FILE_LIST_DIRECTORY, FILE_NOTIFY_CHANGE_CREATION, FILE_NOTIFY_CHANGE_DIR_NAME,
+        FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FILE_NOTIFY_CHANGE_SIZE,
+        FILE_NOTIFY_INFORMATION, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        OPEN_EXISTING, ReadDirectoryChangesW,
     };
+    use windows::core::PCWSTR;
 
     #[derive(Debug, Clone)]
     pub struct RawFileChangeMsg {
@@ -31,7 +31,10 @@ pub mod native_watcher {
     }
 
     impl DirectoryWatcherThread {
-        pub fn start(dir: impl Into<PathBuf>, tx: Sender<RawFileChangeMsg>) -> Result<Self, String> {
+        pub fn start(
+            dir: impl Into<PathBuf>,
+            tx: Sender<RawFileChangeMsg>,
+        ) -> Result<Self, String> {
             let dir_path = dir.into();
             if !dir_path.exists() {
                 let _ = std::fs::create_dir_all(&dir_path);
@@ -63,7 +66,10 @@ pub mod native_watcher {
                 let h_dir = match h_dir {
                     Ok(h) if h != INVALID_HANDLE_VALUE => h,
                     _ => {
-                        error!("Failed to open directory handle for watching: {:?}", watch_dir);
+                        error!(
+                            "Failed to open directory handle for watching: {:?}",
+                            watch_dir
+                        );
                         return;
                     }
                 };

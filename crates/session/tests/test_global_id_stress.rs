@@ -81,7 +81,8 @@ fn test_allocator_block_exhaustion_rapid_resizing() {
 
     // Use tiny block size of 7 to force rapid block exhaustion
     let block_size = 7;
-    let allocator = Arc::new(GlobalEventIdAllocator::with_block_size(spool_root, block_size).unwrap());
+    let allocator =
+        Arc::new(GlobalEventIdAllocator::with_block_size(spool_root, block_size).unwrap());
 
     let thread_count = 16;
     let allocs_per_thread = 250; // Total 4000 allocations -> ~571 blocks reserved
@@ -130,7 +131,8 @@ fn test_allocator_extreme_contention_tiny_block() {
 
     // Extreme case: block size = 3 with 30 threads allocating 100 IDs each
     let block_size = 3;
-    let allocator = Arc::new(GlobalEventIdAllocator::with_block_size(spool_root, block_size).unwrap());
+    let allocator =
+        Arc::new(GlobalEventIdAllocator::with_block_size(spool_root, block_size).unwrap());
 
     let thread_count = 30;
     let allocs_per_thread = 100;

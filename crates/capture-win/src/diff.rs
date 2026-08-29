@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct VisualDiffResult {
     pub changed_pixel_count: usize,
     pub total_pixel_count: usize,
-    pub change_ratio: f32, // 0.0 .. 1.0 (e.g. 0.005 = 0.5%)
+    pub change_ratio: f32,   // 0.0 .. 1.0 (e.g. 0.005 = 0.5%)
     pub is_stabilized: bool, // True if change_ratio < threshold
     pub changed_bounding_box: Option<BoundingBox>,
 }
@@ -20,7 +20,10 @@ pub fn compute_visual_diff(
     stabilization_threshold: f32, // e.g. 0.005 (0.5%)
 ) -> VisualDiffResult {
     let total_pixels = (width * height) as usize;
-    if before_buf.len() < total_pixels * 4 || after_buf.len() < total_pixels * 4 || total_pixels == 0 {
+    if before_buf.len() < total_pixels * 4
+        || after_buf.len() < total_pixels * 4
+        || total_pixels == 0
+    {
         return VisualDiffResult {
             changed_pixel_count: 0,
             total_pixel_count: total_pixels,
@@ -108,7 +111,7 @@ mod tests {
         for y in 30..40 {
             for x in 20..30 {
                 let idx = ((y * 100 + x) * 4) as usize;
-                buf2[idx] = 255;     // B
+                buf2[idx] = 255; // B
                 buf2[idx + 1] = 255; // G
                 buf2[idx + 2] = 255; // R
             }

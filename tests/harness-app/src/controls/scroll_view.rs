@@ -37,7 +37,9 @@ impl ScrollControl {
 
     pub fn scroll(&mut self, delta_x: f64, delta_y: f64) {
         self.total_scroll_events += 1;
-        self.offset_x = (self.offset_x + delta_x).clamp(0.0, (self.content_width - self.viewport_width).max(0.0));
-        self.offset_y = (self.offset_y + delta_y).clamp(0.0, (self.content_height - self.viewport_height).max(0.0));
+        self.offset_x = (self.offset_x + delta_x)
+            .clamp(0.0, (self.content_width - self.viewport_width).max(0.0));
+        self.offset_y = (self.offset_y + delta_y)
+            .clamp(0.0, (self.content_height - self.viewport_height).max(0.0));
     }
 }

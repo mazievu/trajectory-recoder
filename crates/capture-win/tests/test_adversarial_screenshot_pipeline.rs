@@ -1,7 +1,7 @@
 use capture_win::diff::compute_visual_diff;
 use capture_win::screenshot::{
-    bgra_to_rgba, encode_webp, pixel_diff_ratio, CapturedFrame, ScreenCaptureBackend,
-    ScreenshotPipeline,
+    CapturedFrame, ScreenCaptureBackend, ScreenshotPipeline, bgra_to_rgba, encode_webp,
+    pixel_diff_ratio,
 };
 use core_types::metadata::BoundingRect;
 use std::sync::{Arc, Mutex};
@@ -45,7 +45,7 @@ fn test_encode_webp_edge_cases() {
     for chunk in bgra_4k.chunks_exact_mut(4) {
         chunk[0] = 200; // B
         chunk[1] = 100; // G
-        chunk[2] = 50;  // R
+        chunk[2] = 50; // R
         chunk[3] = 255; // A
     }
     let webp_4k = encode_webp(&bgra_4k, w_4k, h_4k, 80).expect("4K WebP encode");
@@ -79,8 +79,8 @@ fn test_pixel_diff_ratio_thresholds_and_boundaries() {
     // Delta <= 10 should NOT count as changed
     let mut small_diff = base.clone();
     for i in 0..100 {
-        small_diff[i * 4] = 110;     // +10
-        small_diff[i * 4 + 1] = 90;  // -10
+        small_diff[i * 4] = 110; // +10
+        small_diff[i * 4 + 1] = 90; // -10
         small_diff[i * 4 + 2] = 105; // +5
     }
     assert_eq!(pixel_diff_ratio(&base, &small_diff), 0.0);

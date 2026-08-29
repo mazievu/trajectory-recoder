@@ -3,8 +3,8 @@ use parking_lot::Mutex;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 pub const DEFAULT_BLOCK_SIZE: u64 = 10_000;
 pub const PREALLOCATION_THRESHOLD: u64 = 1_000;

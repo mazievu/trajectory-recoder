@@ -41,8 +41,13 @@ impl ScreenshotVerifier {
             }
         }
 
-        let entries = fs::read_dir(screenshots_dir)
-            .map_err(|e| format!("Failed to read screenshots dir {}: {}", screenshots_dir.display(), e))?;
+        let entries = fs::read_dir(screenshots_dir).map_err(|e| {
+            format!(
+                "Failed to read screenshots dir {}: {}",
+                screenshots_dir.display(),
+                e
+            )
+        })?;
 
         let mut existing_files = Vec::new();
         for entry in entries.flatten() {
@@ -65,7 +70,11 @@ impl ScreenshotVerifier {
                         }
                     }
                     Err(e) => {
-                        report.corrupted_images.push(format!("{}: I/O read error: {}", path.display(), e));
+                        report.corrupted_images.push(format!(
+                            "{}: I/O read error: {}",
+                            path.display(),
+                            e
+                        ));
                     }
                 }
             }

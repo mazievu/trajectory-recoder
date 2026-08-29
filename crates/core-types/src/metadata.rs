@@ -40,7 +40,12 @@ pub struct Point2D {
 }
 
 impl Point2D {
-    pub const fn new(physical_x: i32, physical_y: i32, normalized_x: f32, normalized_y: f32) -> Self {
+    pub const fn new(
+        physical_x: i32,
+        physical_y: i32,
+        normalized_x: f32,
+        normalized_y: f32,
+    ) -> Self {
         Self {
             physical_x,
             physical_y,
@@ -94,7 +99,12 @@ pub struct BoundingBox {
 
 impl BoundingBox {
     pub const fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
-        Self { x, y, width, height }
+        Self {
+            x,
+            y,
+            width,
+            height,
+        }
     }
 
     pub fn contains(&self, px: i32, py: i32) -> bool {

@@ -6,10 +6,10 @@ pub mod error;
 pub mod hash;
 pub mod master_key;
 
-pub use aead::{XChaCha20Aead, MAGIC_ENCRYPTED_HEADER, NONCE_SIZE_BYTES, TAG_SIZE_BYTES};
+pub use aead::{MAGIC_ENCRYPTED_HEADER, NONCE_SIZE_BYTES, TAG_SIZE_BYTES, XChaCha20Aead};
 pub use dpapi::Dpapi;
 pub use error::CryptoError;
 pub use hash::{
-    compute_sha256, compute_sha256_hex, hash_file_sha256, verify_sha256_hex, Sha256Hasher,
+    Sha256Hasher, compute_sha256, compute_sha256_hex, hash_file_sha256, verify_sha256_hex,
 };
-pub use master_key::{MasterKey, KEY_SIZE_BYTES};
+pub use master_key::{KEY_SIZE_BYTES, MasterKey};

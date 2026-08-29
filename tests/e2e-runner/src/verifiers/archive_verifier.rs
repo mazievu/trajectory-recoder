@@ -20,7 +20,8 @@ pub struct ArchiveVerifier;
 
 impl ArchiveVerifier {
     pub fn verify_tar_zst_archive(path: &Path) -> Result<ArchiveValidationReport, String> {
-        let file = File::open(path).map_err(|e| format!("Failed to open archive at {}: {}", path.display(), e))?;
+        let file = File::open(path)
+            .map_err(|e| format!("Failed to open archive at {}: {}", path.display(), e))?;
 
         // 1. Calculate overall archive file SHA-256
         let mut hasher = Sha256::new();
@@ -54,7 +55,9 @@ impl ArchiveVerifier {
                 d
             }
             Err(e) => {
-                report.errors.push(format!("Zstd decompression init failed: {}", e));
+                report
+                    .errors
+                    .push(format!("Zstd decompression init failed: {}", e));
                 return Ok(report);
             }
         };

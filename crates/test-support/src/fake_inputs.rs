@@ -49,7 +49,11 @@ impl FakeInputDriver {
         (down, up)
     }
 
-    pub fn fake_key_stroke(key_name: &str, vk_code: u32, modifiers: ModifierState) -> (RawKeyboardEvent, RawKeyboardEvent) {
+    pub fn fake_key_stroke(
+        key_name: &str,
+        vk_code: u32,
+        modifiers: ModifierState,
+    ) -> (RawKeyboardEvent, RawKeyboardEvent) {
         let down = RawKeyboardEvent {
             event_type: "KEY_DOWN".to_string(),
             vk_code,

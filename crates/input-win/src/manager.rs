@@ -1,16 +1,14 @@
 use crate::coordinate::{CoordinateMapper, MonitorBounds};
 use crate::double_click::DoubleClickDetector;
 use crate::keyboard_state::KeyboardModifierTracker;
-use core_types::event::{
-    EventSource, RawEvent, RawEventPayload, RawKeyboardEvent, RawMouseEvent,
-};
+use core_types::event::{EventSource, RawEvent, RawEventPayload, RawKeyboardEvent, RawMouseEvent};
 use core_types::id::GlobalEventId;
 use core_types::metadata::MouseButton;
 use core_types::timestamp::DualTimestamp;
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, bounded};
 use parking_lot::RwLock;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tracing::{info, warn};
@@ -56,11 +54,15 @@ impl InputHookManager {
             let (mouse_tx, mouse_rx) = bounded(20_000);
             let (kbd_tx, kbd_rx) = bounded(20_000);
 
-            let win_hook_result = crate::hook::windows_hook::Win32HookThread::start(mouse_tx.clone(), kbd_tx.clone());
+            let win_hook_result =
+                crate::hook::windows_hook::Win32HookThread::start(mouse_tx.clone(), kbd_tx.clone());
             let (win_hook, is_mock) = match win_hook_result {
                 Ok(hook) => (Some(hook), false),
                 Err(err) => {
-                    warn!("Could not initialize Win32 hooks (fallback to simulation/mock): {}", err);
+                    warn!(
+                        "Could not initialize Win32 hooks (fallback to simulation/mock): {}",
+                        err
+                    );
                     (None, true)
                 }
             };
@@ -254,8 +256,15 @@ impl InputHookManager {
             .unwrap_or_default()
             .as_millis() as u64;
 
-        let is_double = self.double_click_detector.write().check_and_update(button, px, py, now_ms);
-        let event_type = if is_double { "DOUBLE_CLICK" } else { "MOUSE_DOWN" };
+        let is_double = self
+            .double_click_detector
+            .write()
+            .check_and_update(button, px, py, now_ms);
+        let event_type = if is_double {
+            "DOUBLE_CLICK"
+        } else {
+            "MOUSE_DOWN"
+        };
 
         let (mon_id, nx, ny, pt) = self.coordinate_mapper.map_point(px, py);
         let payload = RawEventPayload::Mouse(RawMouseEvent {

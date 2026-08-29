@@ -1,7 +1,7 @@
 use sha2::{Digest, Sha256};
-use subtle::ConstantTimeEq;
 use std::io::Read;
 use std::path::Path;
+use subtle::ConstantTimeEq;
 
 pub struct Sha256Hasher {
     hasher: Sha256,
@@ -9,7 +9,9 @@ pub struct Sha256Hasher {
 
 impl Default for Sha256Hasher {
     fn default() -> Self {
-        Self { hasher: Sha256::new() }
+        Self {
+            hasher: Sha256::new(),
+        }
     }
 }
 
@@ -65,7 +67,10 @@ pub fn verify_sha256_hex(computed_hex: &str, expected_hex: &str) -> bool {
     if computed_hex.len() != expected_hex.len() {
         return false;
     }
-    computed_hex.as_bytes().ct_eq(expected_hex.as_bytes()).into()
+    computed_hex
+        .as_bytes()
+        .ct_eq(expected_hex.as_bytes())
+        .into()
 }
 
 #[cfg(test)]
@@ -79,8 +84,14 @@ mod tests {
             hash,
             "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
         );
-        assert!(verify_sha256_hex(&hash, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"));
-        assert!(!verify_sha256_hex(&hash, "0000000000000000000000000000000000000000000000000000000000000000"));
+        assert!(verify_sha256_hex(
+            &hash,
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        ));
+        assert!(!verify_sha256_hex(
+            &hash,
+            "0000000000000000000000000000000000000000000000000000000000000000"
+        ));
     }
 
     #[test]

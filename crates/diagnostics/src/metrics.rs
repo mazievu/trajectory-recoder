@@ -1,8 +1,8 @@
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
-use std::sync::Arc;
-use std::time::Instant;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicUsize, Ordering};
+use std::time::Instant;
 
 /// High-throughput in-memory atomic metrics collector.
 #[derive(Debug)]
@@ -11,7 +11,7 @@ pub struct MetricsCollector {
     pub events_captured_total: AtomicU64,
     pub events_dropped_total: AtomicU64,
     pub canonical_actions_total: AtomicU64,
-    
+
     // Channel queue depths (P0 to P4)
     pub queue_depth_p0_input: AtomicUsize,
     pub queue_depth_p1_window: AtomicUsize,
@@ -131,18 +131,22 @@ impl MetricsCollector {
 
     #[inline]
     pub fn record_uia_latency(&self, duration_us: u64) {
-        self.last_uia_latency_us.store(duration_us, Ordering::Relaxed);
-        self.max_uia_latency_us.fetch_max(duration_us, Ordering::Relaxed);
+        self.last_uia_latency_us
+            .store(duration_us, Ordering::Relaxed);
+        self.max_uia_latency_us
+            .fetch_max(duration_us, Ordering::Relaxed);
     }
 
     #[inline]
     pub fn record_screenshot_latency(&self, duration_us: u64) {
-        self.last_screenshot_latency_us.store(duration_us, Ordering::Relaxed);
+        self.last_screenshot_latency_us
+            .store(duration_us, Ordering::Relaxed);
     }
 
     #[inline]
     pub fn record_disk_write_latency(&self, duration_us: u64) {
-        self.last_disk_write_latency_us.store(duration_us, Ordering::Relaxed);
+        self.last_disk_write_latency_us
+            .store(duration_us, Ordering::Relaxed);
     }
 
     #[inline]
@@ -165,12 +169,15 @@ impl MetricsCollector {
             if elapsed_secs >= 0.001 {
                 let d_captured = current_captured.saturating_sub(state.last_events_captured);
                 let d_dropped = current_dropped.saturating_sub(state.last_events_dropped);
-                
+
                 state.last_sample_instant = now;
                 state.last_events_captured = current_captured;
                 state.last_events_dropped = current_dropped;
 
-                (d_captured as f64 / elapsed_secs, d_dropped as f64 / elapsed_secs)
+                (
+                    d_captured as f64 / elapsed_secs,
+                    d_dropped as f64 / elapsed_secs,
+                )
             } else {
                 (0.0, 0.0)
             }

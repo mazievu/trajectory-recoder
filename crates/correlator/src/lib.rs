@@ -15,14 +15,14 @@ mod tests {
     use super::*;
     use core_types::action::{ActionParameters, ActionType};
     use core_types::event::{
-        EventSource, RawEvent, RawEventPayload,
-        RawBrowserEvent, RawKeyboardEvent, RawMouseEvent, RawWindowEvent,
+        EventSource, RawBrowserEvent, RawEvent, RawEventPayload, RawKeyboardEvent, RawMouseEvent,
+        RawWindowEvent,
     };
     use core_types::id::{GlobalEventId, SessionId};
     use core_types::metadata::{BoundingRect, MouseButton, Point2D, TargetMetadata};
     use core_types::timestamp::DualTimestamp;
-    use std::sync::atomic::AtomicU64;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicU64;
     use std::thread::sleep;
     use std::time::Duration;
 
@@ -297,7 +297,13 @@ mod tests {
         let global_seq = Arc::new(AtomicU64::new(300));
         let mut engine = CorrelationEngine::new("sess_test", "user1", "mach1", global_seq);
 
-        let keys = [('H', 0x48), ('e', 0x45), ('l', 0x4C), ('l', 0x4C), ('o', 0x4F)];
+        let keys = [
+            ('H', 0x48),
+            ('e', 0x45),
+            ('l', 0x4C),
+            ('l', 0x4C),
+            ('o', 0x4F),
+        ];
         for (idx, &(ch, vk)) in keys.iter().enumerate() {
             let raw = RawEvent::new(
                 idx as u64 + 1,
@@ -354,9 +360,9 @@ mod tests {
 
         assert_eq!(action.action_type, ActionType::TypeText);
         if let ActionParameters::TypeText(ref tp) = action.parameters {
-        assert_eq!(tp.text, "[UNOBSERVED_TEXT]");
-        assert_eq!(tp.character_count, 2);
-        assert!(tp.is_redacted);
+            assert_eq!(tp.text, "[UNOBSERVED_TEXT]");
+            assert_eq!(tp.character_count, 2);
+            assert!(tp.is_redacted);
         }
     }
 }

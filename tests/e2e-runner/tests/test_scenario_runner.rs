@@ -24,16 +24,25 @@ fn test_scenario_runner_session_lifecycle_and_spool_transitions() {
     ScenarioRunner::write_sample_ndjson_events(&session_dir, &sample_events).unwrap();
 
     // Transition recording -> finalizing
-    let fin_dir = runner.spool.transition_recording_to_finalizing(session_id).unwrap();
+    let fin_dir = runner
+        .spool
+        .transition_recording_to_finalizing(session_id)
+        .unwrap();
     assert!(fin_dir.exists());
     assert!(!runner.spool.recording_dir().join(session_id).exists());
 
     // Transition finalizing -> pending_upload
-    let pend_dir = runner.spool.transition_finalizing_to_pending(session_id).unwrap();
+    let pend_dir = runner
+        .spool
+        .transition_finalizing_to_pending(session_id)
+        .unwrap();
     assert!(pend_dir.exists());
 
     // Transition pending_upload -> uploaded
-    let up_dir = runner.spool.transition_pending_to_uploaded(session_id).unwrap();
+    let up_dir = runner
+        .spool
+        .transition_pending_to_uploaded(session_id)
+        .unwrap();
     assert!(up_dir.exists());
 }
 

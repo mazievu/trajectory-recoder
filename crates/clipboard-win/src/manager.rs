@@ -2,9 +2,9 @@ use crate::hasher::compute_sha256;
 use core_types::event::{EventSource, RawClipboardEvent, RawEvent, RawEventPayload};
 use core_types::id::GlobalEventId;
 use core_types::timestamp::DualTimestamp;
-use crossbeam_channel::{bounded, Receiver, Sender};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use crossbeam_channel::{Receiver, Sender, bounded};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tracing::{info, warn};
@@ -39,11 +39,15 @@ impl ClipboardManager {
         #[cfg(windows)]
         {
             let (meta_tx, meta_rx) = bounded(1_000);
-            let listener_res = crate::listener::native_listener::ClipboardListenerThread::start(meta_tx);
+            let listener_res =
+                crate::listener::native_listener::ClipboardListenerThread::start(meta_tx);
             let (listener, is_mock) = match listener_res {
                 Ok(l) => (Some(l), false),
                 Err(err) => {
-                    warn!("Could not start clipboard format listener (fallback to simulation/mock): {}", err);
+                    warn!(
+                        "Could not start clipboard format listener (fallback to simulation/mock): {}",
+                        err
+                    );
                     (None, true)
                 }
             };

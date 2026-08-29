@@ -24,7 +24,8 @@ mod tests {
         std::fs::write(session_dir.join("a.ndjson"), "line1\nline2\n").unwrap();
         std::fs::write(session_dir.join("b.db"), "data").unwrap();
 
-        let (uncompressed, _compressed, files) = create_tar_zstd_archive(&session_dir, &archive_file, 3).unwrap();
+        let (uncompressed, _compressed, files) =
+            create_tar_zstd_archive(&session_dir, &archive_file, 3).unwrap();
         assert_eq!(files.len(), 2);
 
         let manifest = chunk_and_encrypt_archive(

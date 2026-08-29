@@ -11,13 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tracing::error;
 
-pub const REQUIRED_SUBDIRECTORIES: [&str; 5] = [
-    "screenshots",
-    "video",
-    "browser",
-    "uia",
-    "diagnostics",
-];
+pub const REQUIRED_SUBDIRECTORIES: [&str; 5] =
+    ["screenshots", "video", "browser", "uia", "diagnostics"];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionManifest {
@@ -81,10 +76,11 @@ impl SessionManager {
         })?;
 
         let start_ts = DualTimestamp::now();
-        db.insert_session_meta(&session_id, &m_id, &u_id, &start_ts, "RECORDING").map_err(|e| {
-            error!("Failed to insert session_meta at start: {}", e);
-            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-        })?;
+        db.insert_session_meta(&session_id, &m_id, &u_id, &start_ts, "RECORDING")
+            .map_err(|e| {
+                error!("Failed to insert session_meta at start: {}", e);
+                std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+            })?;
 
         let manifest = SessionManifest {
             schema: "gtf.trajectory".to_string(),
@@ -127,9 +123,8 @@ impl SessionManager {
 
     fn write_manifest(dir: &Path, manifest: &SessionManifest) -> std::io::Result<()> {
         let manifest_path = dir.join("manifest.json");
-        let json_str = serde_json::to_string_pretty(manifest).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-        })?;
+        let json_str = serde_json::to_string_pretty(manifest)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         std::fs::write(manifest_path, json_str)
     }
 
@@ -150,9 +145,8 @@ impl SessionManager {
             writer.write_record(action)?;
         }
         if let Some(ref db) = self.db {
-            db.insert_canonical_action(action).map_err(|e| {
-                std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-            })?;
+            db.insert_canonical_action(action)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
         }
         self.action_count += 1;
         Ok(())
@@ -182,7 +176,8 @@ impl SessionManager {
                 self.event_count,
                 self.action_count,
                 "FINALIZED",
-            ).map_err(|e| {
+            )
+            .map_err(|e| {
                 error!("Failed to finalize session meta on rotation: {}", e);
                 std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
             })?;
@@ -232,7 +227,10 @@ impl SessionManager {
         drop(self.normalized_ndjson_writer.take());
 
         // 4. Move old session dir from recording/ to finalizing/
-        let finalizing_dir = self.spool_root.join("finalizing").join(self.current_session_id.as_str());
+        let finalizing_dir = self
+            .spool_root
+            .join("finalizing")
+            .join(self.current_session_id.as_str());
         if let Some(parent) = finalizing_dir.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -243,7 +241,10 @@ impl SessionManager {
 
         // 5. Initialize new session
         let new_session_id = self.id_gen.generate(now);
-        let new_active_dir = self.spool_root.join("recording").join(new_session_id.as_str());
+        let new_active_dir = self
+            .spool_root
+            .join("recording")
+            .join(new_session_id.as_str());
         Self::init_session_directory(&new_active_dir)?;
 
         let new_raw_ndjson = NdjsonWriter::open(new_active_dir.join("events.raw.ndjson"))?;
@@ -256,10 +257,18 @@ impl SessionManager {
         })?;
 
         let new_start_ts = DualTimestamp::now();
-        new_db.insert_session_meta(&new_session_id, &self.machine_id, &self.user_id, &new_start_ts, "RECORDING").map_err(|e| {
-            error!("Failed to insert new session_meta on rotation: {}", e);
-            std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
-        })?;
+        new_db
+            .insert_session_meta(
+                &new_session_id,
+                &self.machine_id,
+                &self.user_id,
+                &new_start_ts,
+                "RECORDING",
+            )
+            .map_err(|e| {
+                error!("Failed to insert new session_meta on rotation: {}", e);
+                std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
+            })?;
 
         let new_manifest = SessionManifest {
             schema: "gtf.trajectory".to_string(),

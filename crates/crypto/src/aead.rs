@@ -1,13 +1,13 @@
-use chacha20poly1305::{
-    aead::{Aead, KeyInit, Payload},
-    XChaCha20Poly1305, XNonce,
-};
-use rand::RngCore;
 use crate::error::CryptoError;
 use crate::master_key::MasterKey;
+use chacha20poly1305::{
+    XChaCha20Poly1305, XNonce,
+    aead::{Aead, KeyInit, Payload},
+};
+use rand::RngCore;
 
 pub const NONCE_SIZE_BYTES: usize = 24; // 192 bits
-pub const TAG_SIZE_BYTES: usize = 16;   // 128 bits
+pub const TAG_SIZE_BYTES: usize = 16; // 128 bits
 pub const MAGIC_ENCRYPTED_HEADER: &[u8; 4] = b"TREC"; // Trajectory Recorder Encrypted Chunk
 
 pub struct XChaCha20Aead;
@@ -65,9 +65,11 @@ impl XChaCha20Aead {
             aad: associated_data,
         };
 
-        cipher
-            .decrypt(nonce, payload)
-            .map_err(|_| CryptoError::DecryptionFailed("Authentication tag verification failed or ciphertext corrupted".into()))
+        cipher.decrypt(nonce, payload).map_err(|_| {
+            CryptoError::DecryptionFailed(
+                "Authentication tag verification failed or ciphertext corrupted".into(),
+            )
+        })
     }
 }
 
@@ -78,11 +80,15 @@ mod tests {
     #[test]
     fn test_xchacha20_aead_roundtrip() {
         let key = MasterKey::generate();
-        let plaintext = b"Hello world! This is a test of XChaCha20-Poly1305 authenticated encryption.";
+        let plaintext =
+            b"Hello world! This is a test of XChaCha20-Poly1305 authenticated encryption.";
         let aad = b"session_id=test_123_chunk_0";
 
         let encrypted = XChaCha20Aead::encrypt(&key, plaintext, aad).unwrap();
-        assert_eq!(encrypted.len(), NONCE_SIZE_BYTES + plaintext.len() + TAG_SIZE_BYTES);
+        assert_eq!(
+            encrypted.len(),
+            NONCE_SIZE_BYTES + plaintext.len() + TAG_SIZE_BYTES
+        );
 
         let decrypted = XChaCha20Aead::decrypt(&key, &encrypted, aad).unwrap();
         assert_eq!(decrypted, plaintext);

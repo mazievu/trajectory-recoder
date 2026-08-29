@@ -1,16 +1,16 @@
-use std::collections::HashMap;
-use std::sync::Arc;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum HealthStatus {
-    Healthy,       // Fully operational
-    Degraded,      // Minor issues (UIA timeout, extension disconnect, disk Tier 1/2)
-    Critical,      // Severe backpressure, disk Tier 3, event drops occurring
-    Fatal,         // Subsystem stopped, encryption key lost, crash loop
-    Recovering,    // Startup crash recovery in progress
+    Healthy,    // Fully operational
+    Degraded,   // Minor issues (UIA timeout, extension disconnect, disk Tier 1/2)
+    Critical,   // Severe backpressure, disk Tier 3, event drops occurring
+    Fatal,      // Subsystem stopped, encryption key lost, crash loop
+    Recovering, // Startup crash recovery in progress
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

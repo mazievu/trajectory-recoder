@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     body::Bytes,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     routing::{get, post, put},
-    Json, Router,
 };
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -46,9 +46,11 @@ async fn start_test_server(fail_first_n_attempts: usize) -> (String, TestServerS
         )
         .route(
             "/api/v1/machines/heartbeat",
-            post(|_headers: HeaderMap, Json(_payload): Json<serde_json::Value>| async {
-                (StatusCode::OK, Json(serde_json::json!({ "status": "ok" })))
-            }),
+            post(
+                |_headers: HeaderMap, Json(_payload): Json<serde_json::Value>| async {
+                    (StatusCode::OK, Json(serde_json::json!({ "status": "ok" })))
+                },
+            ),
         )
         .route(
             "/api/v1/sessions",
@@ -88,7 +90,10 @@ async fn start_test_server(fail_first_n_attempts: usize) -> (String, TestServerS
                         );
                     }
 
-                    st.received_chunks.lock().unwrap().insert(idx, body.to_vec());
+                    st.received_chunks
+                        .lock()
+                        .unwrap()
+                        .insert(idx, body.to_vec());
                     (
                         StatusCode::OK,
                         Json(serde_json::json!({
@@ -207,7 +212,12 @@ async fn test_full_upload_client_flow_with_retry_and_jitter() {
 
     assert_eq!(server_state.attempt_counter.load(Ordering::SeqCst), 3);
     assert_eq!(
-        server_state.received_chunks.lock().unwrap().get(&0).unwrap(),
+        server_state
+            .received_chunks
+            .lock()
+            .unwrap()
+            .get(&0)
+            .unwrap(),
         chunk_data
     );
 

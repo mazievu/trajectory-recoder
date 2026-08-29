@@ -1,8 +1,8 @@
 use crate::manifest::{ArchiveChunkEntry, SessionArchiveManifest};
 use chrono::Utc;
+use crypto::MasterKey;
 use crypto::aead::XChaCha20Aead;
 use crypto::hash::compute_sha256;
-use crypto::MasterKey;
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;

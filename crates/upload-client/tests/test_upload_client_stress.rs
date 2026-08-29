@@ -1,9 +1,9 @@
 use axum::{
+    Json, Router,
     body::Bytes,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     routing::put,
-    Json, Router,
 };
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -20,7 +20,10 @@ struct FlakyServerState {
     inject_status_code: StatusCode,
 }
 
-async fn start_flaky_server(fail_until_attempt: usize, inject_status: StatusCode) -> (String, FlakyServerState) {
+async fn start_flaky_server(
+    fail_until_attempt: usize,
+    inject_status: StatusCode,
+) -> (String, FlakyServerState) {
     let state = FlakyServerState {
         received_chunks: Arc::new(Mutex::new(HashMap::new())),
         attempt_counters: Arc::new(Mutex::new(HashMap::new())),
@@ -58,7 +61,10 @@ async fn start_flaky_server(fail_until_attempt: usize, inject_status: StatusCode
                         );
                     }
 
-                    st.received_chunks.lock().unwrap().insert(idx, body.to_vec());
+                    st.received_chunks
+                        .lock()
+                        .unwrap()
+                        .insert(idx, body.to_vec());
                     (
                         StatusCode::OK,
                         Json(serde_json::json!({
@@ -103,17 +109,32 @@ async fn test_upload_retry_eventual_success_after_multiple_failures() {
 
     assert!(res.is_ok(), "Upload should succeed after retries");
 
-    let attempts = *server_state.attempt_counters.lock().unwrap().get(&0).unwrap();
-    assert_eq!(attempts, 4, "Should have succeeded on exactly the 4th attempt");
+    let attempts = *server_state
+        .attempt_counters
+        .lock()
+        .unwrap()
+        .get(&0)
+        .unwrap();
+    assert_eq!(
+        attempts, 4,
+        "Should have succeeded on exactly the 4th attempt"
+    );
 
-    let stored = server_state.received_chunks.lock().unwrap().get(&0).unwrap().clone();
+    let stored = server_state
+        .received_chunks
+        .lock()
+        .unwrap()
+        .get(&0)
+        .unwrap()
+        .clone();
     assert_eq!(stored, chunk_data);
 }
 
 #[tokio::test]
 async fn test_upload_retry_exhaustion_returns_max_retries_exceeded() {
     // Fail first 10 attempts with HTTP 500, but client max_retries is 4
-    let (server_url, server_state) = start_flaky_server(10, StatusCode::INTERNAL_SERVER_ERROR).await;
+    let (server_url, server_state) =
+        start_flaky_server(10, StatusCode::INTERNAL_SERVER_ERROR).await;
 
     let mut config = UploadClientConfig::default();
     config.initial_retry_backoff_ms = 10;
@@ -136,8 +157,16 @@ async fn test_upload_retry_exhaustion_returns_max_retries_exceeded() {
         other => panic!("Expected MaxRetriesExceeded(4), got {:?}", other),
     }
 
-    let attempts = *server_state.attempt_counters.lock().unwrap().get(&0).unwrap();
-    assert_eq!(attempts, 4, "Should have stopped attempting after 4 retries");
+    let attempts = *server_state
+        .attempt_counters
+        .lock()
+        .unwrap()
+        .get(&0)
+        .unwrap();
+    assert_eq!(
+        attempts, 4,
+        "Should have stopped attempting after 4 retries"
+    );
 }
 
 #[tokio::test]
@@ -217,9 +246,15 @@ async fn test_upload_unauthorized_token_handling() {
         put(|headers: HeaderMap| async move {
             let auth = headers.get("Authorization").and_then(|h| h.to_str().ok());
             if auth != Some("Bearer valid_secret_token") {
-                return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "Unauthorized" })));
+                return (
+                    StatusCode::UNAUTHORIZED,
+                    Json(serde_json::json!({ "error": "Unauthorized" })),
+                );
             }
-            (StatusCode::OK, Json(serde_json::json!({ "status": "stored" })))
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({ "status": "stored" })),
+            )
         }),
     );
 

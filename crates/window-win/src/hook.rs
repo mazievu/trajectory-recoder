@@ -2,17 +2,17 @@
 pub mod windows_hook {
     use crossbeam_channel::Sender;
     use parking_lot::RwLock;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread::{self, JoinHandle};
     use tracing::{error, info};
     use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-    use windows::Win32::UI::Accessibility::{SetWinEventHook, UnhookWinEvent, HWINEVENTHOOK};
+    use windows::Win32::UI::Accessibility::{HWINEVENTHOOK, SetWinEventHook, UnhookWinEvent};
     use windows::Win32::UI::WindowsAndMessaging::{
-        DispatchMessageW, GetMessageW, PostThreadMessageW, TranslateMessage, MSG,
-        EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_LOCATIONCHANGE,
-        EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_MINIMIZEEND, EVENT_SYSTEM_MINIMIZESTART,
-        OBJID_WINDOW, WINEVENT_OUTOFCONTEXT, WINEVENT_SKIPOWNPROCESS, WM_QUIT,
+        DispatchMessageW, EVENT_OBJECT_CREATE, EVENT_OBJECT_DESTROY, EVENT_OBJECT_LOCATIONCHANGE,
+        EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_MINIMIZEEND, EVENT_SYSTEM_MINIMIZESTART, GetMessageW,
+        MSG, OBJID_WINDOW, PostThreadMessageW, TranslateMessage, WINEVENT_OUTOFCONTEXT,
+        WINEVENT_SKIPOWNPROCESS, WM_QUIT,
     };
 
     #[derive(Debug, Clone)]
@@ -64,7 +64,8 @@ pub mod windows_hook {
             let running_clone = running.clone();
 
             let handle = thread::spawn(move || {
-                let current_tid = unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
+                let current_tid =
+                    unsafe { windows::Win32::System::Threading::GetCurrentThreadId() };
                 let _ = tid_tx.send(current_tid);
 
                 let hook1: HWINEVENTHOOK;
@@ -103,7 +104,10 @@ pub mod windows_hook {
                     }
                 }
 
-                info!("WinEvent hooks installed successfully on thread {}", current_tid);
+                info!(
+                    "WinEvent hooks installed successfully on thread {}",
+                    current_tid
+                );
 
                 let mut msg = MSG::default();
                 while running_clone.load(Ordering::Relaxed) {

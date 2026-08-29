@@ -121,14 +121,18 @@ mod tests {
         let manager = ConfigManager::new(RecorderConfig::default()).unwrap();
         manager
             .apply_server_policy_override(|cfg| {
-                cfg.privacy.excluded_apps.push("OverriddenApp.exe".to_string());
+                cfg.privacy
+                    .excluded_apps
+                    .push("OverriddenApp.exe".to_string());
             })
             .unwrap();
 
-        assert!(manager
-            .get()
-            .privacy
-            .excluded_apps
-            .contains(&"OverriddenApp.exe".to_string()));
+        assert!(
+            manager
+                .get()
+                .privacy
+                .excluded_apps
+                .contains(&"OverriddenApp.exe".to_string())
+        );
     }
 }

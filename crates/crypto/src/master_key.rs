@@ -1,7 +1,7 @@
-use rand::RngCore;
-use zeroize::{Zeroize, ZeroizeOnDrop};
 use crate::dpapi::Dpapi;
 use crate::error::CryptoError;
+use rand::RngCore;
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 pub const KEY_SIZE_BYTES: usize = 32; // 256 bits
 
@@ -27,12 +27,18 @@ impl MasterKey {
     }
 
     /// Protects the master key using machine-level DPAPI for local disk storage.
-    pub fn save_dpapi_protected(&self, entropy_salt: Option<&[u8]>) -> Result<Vec<u8>, CryptoError> {
+    pub fn save_dpapi_protected(
+        &self,
+        entropy_salt: Option<&[u8]>,
+    ) -> Result<Vec<u8>, CryptoError> {
         Dpapi::protect_machine_secret(&self.bytes, entropy_salt)
     }
 
     /// Loads and unprotects a DPAPI-encrypted master key from disk.
-    pub fn load_dpapi_protected(ciphertext: &[u8], entropy_salt: Option<&[u8]>) -> Result<Self, CryptoError> {
+    pub fn load_dpapi_protected(
+        ciphertext: &[u8],
+        entropy_salt: Option<&[u8]>,
+    ) -> Result<Self, CryptoError> {
         let mut raw = Dpapi::unprotect(ciphertext, entropy_salt)?;
         if raw.len() != KEY_SIZE_BYTES {
             raw.zeroize();

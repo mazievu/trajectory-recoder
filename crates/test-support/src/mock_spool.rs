@@ -41,7 +41,12 @@ impl MockSpoolFixture {
         }
     }
 
-    pub fn populate_mock_recording_session(&self, session_id: &str, valid_lines: usize, add_corrupt_tail: bool) -> PathBuf {
+    pub fn populate_mock_recording_session(
+        &self,
+        session_id: &str,
+        valid_lines: usize,
+        add_corrupt_tail: bool,
+    ) -> PathBuf {
         let session_dir = self.recording_dir.join(session_id);
         std::fs::create_dir_all(&session_dir).unwrap();
 

@@ -1,7 +1,7 @@
 use core_types::action::CanonicalAction;
 use core_types::id::SessionId;
 use core_types::timestamp::DualTimestamp;
-use rusqlite::{params, Connection, Result};
+use rusqlite::{Connection, Result, params};
 use std::path::{Path, PathBuf};
 
 /// SQLite WAL persistence database for session indexes and canonical action metadata.
@@ -198,7 +198,8 @@ impl SessionDatabase {
     }
 
     pub fn checkpoint_wal(&self) -> Result<()> {
-        self.conn.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+        self.conn
+            .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
         Ok(())
     }
 }
@@ -219,7 +220,8 @@ mod tests {
         let sid = SessionId::new("test_sess_01");
         let ts = DualTimestamp::now();
 
-        db.insert_session_meta(&sid, "M1", "U1", &ts, "RECORDING").unwrap();
+        db.insert_session_meta(&sid, "M1", "U1", &ts, "RECORDING")
+            .unwrap();
 
         let action = CanonicalActionBuilder::new(
             GlobalEventId::new(10),
@@ -232,7 +234,8 @@ mod tests {
         .build();
 
         db.insert_canonical_action(&action).unwrap();
-        db.finalize_session_meta(&sid, &ts, 1, 1, "FINALIZED").unwrap();
+        db.finalize_session_meta(&sid, &ts, 1, 1, "FINALIZED")
+            .unwrap();
         db.checkpoint_wal().unwrap();
     }
 }

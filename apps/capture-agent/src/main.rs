@@ -3,10 +3,10 @@
 //! correlation engine, NDJSON & SQLite WAL persistence, and Named Pipe IPC server.
 
 use clipboard_win::ClipboardManager;
-use correlator::CorrelationEngine;
 use core_types::event::RawEventPayload;
 use core_types::metadata::TargetMetadata;
-use diagnostics::{init_diagnostics, DiagnosticsConfig};
+use correlator::CorrelationEngine;
+use diagnostics::{DiagnosticsConfig, init_diagnostics};
 use event_bus::bus::{EventBus, EventBusConfig};
 use file_events_win::FileWatcherManager;
 use input_win::manager::InputHookManager;
@@ -14,8 +14,8 @@ use ipc::{IpcMessage, IpcServer};
 use privacy::engine::{PrivacyEngine, PrivacyPolicy};
 use session::manager::SessionManager;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tracing::{error, info};
 use uia_win::inspector::UiaInspector;
@@ -37,10 +37,10 @@ fn uia_lookup_request(payload: &RawEventPayload) -> Option<UiaLookupRequest> {
             if matches!(
                 mouse.event_type.as_str(),
                 "MOUSE_DOWN" | "MOUSE_UP" | "CLICK" | "DOUBLE_CLICK" | "MOUSE_WHEEL"
-            ) => Some(UiaLookupRequest::Point(
-            mouse.physical_x,
-            mouse.physical_y,
-        )),
+            ) =>
+        {
+            Some(UiaLookupRequest::Point(mouse.physical_x, mouse.physical_y))
+        }
         RawEventPayload::Keyboard(keyboard) if keyboard.event_type == "KEY_DOWN" => {
             Some(UiaLookupRequest::Focused)
         }
@@ -83,7 +83,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let global_seq = global_id_allocator.current_atomic();
 
     let mut session_mgr = SessionManager::start(&spool_root, machine_id, user_id)?;
-    info!("Active Session: {}", session_mgr.current_session_id().as_str());
+    info!(
+        "Active Session: {}",
+        session_mgr.current_session_id().as_str()
+    );
 
     // 3. Initialize UIA Inspector & Privacy Engine
     let uia_inspector = UiaInspector::new();
@@ -205,7 +208,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if last_rotation_check.elapsed() >= Duration::from_secs(10) {
             last_rotation_check = std::time::Instant::now();
             if let Ok(Some(rotated_old_session)) = session_mgr.check_rotation() {
-                info!("Hourly boundary reached: rotated session {}", rotated_old_session.as_str());
+                info!(
+                    "Hourly boundary reached: rotated session {}",
+                    rotated_old_session.as_str()
+                );
                 correlation_engine.set_session_id(session_mgr.current_session_id().clone());
             }
         }

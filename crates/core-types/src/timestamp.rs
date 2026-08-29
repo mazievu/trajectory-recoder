@@ -54,7 +54,9 @@ impl DualTimestamp {
     #[inline]
     pub fn duration_since(&self, earlier: &Self) -> Option<Duration> {
         if self.monotonic_ns >= earlier.monotonic_ns {
-            Some(Duration::from_nanos(self.monotonic_ns - earlier.monotonic_ns))
+            Some(Duration::from_nanos(
+                self.monotonic_ns - earlier.monotonic_ns,
+            ))
         } else {
             None
         }

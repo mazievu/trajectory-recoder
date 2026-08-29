@@ -12,7 +12,13 @@ impl HourlyRotationTrigger {
 
     /// Calculate the next top-of-the-hour timestamp (e.g. 05:00:00).
     pub fn next_hour_boundary(now: DateTime<Utc>) -> DateTime<Utc> {
-        let current_hour = now.with_minute(0).unwrap().with_second(0).unwrap().with_nanosecond(0).unwrap();
+        let current_hour = now
+            .with_minute(0)
+            .unwrap()
+            .with_second(0)
+            .unwrap()
+            .with_nanosecond(0)
+            .unwrap();
         current_hour + Duration::hours(1)
     }
 
@@ -34,7 +40,13 @@ mod tests {
 
     #[test]
     fn test_hourly_rotation_boundary() {
-        let t0 = Utc::now().with_hour(14).unwrap().with_minute(35).unwrap().with_second(10).unwrap();
+        let t0 = Utc::now()
+            .with_hour(14)
+            .unwrap()
+            .with_minute(35)
+            .unwrap()
+            .with_second(10)
+            .unwrap();
         let next = HourlyRotationTrigger::next_hour_boundary(t0);
 
         assert_eq!(next.hour(), 15);
@@ -43,6 +55,6 @@ mod tests {
 
         let mut trigger = HourlyRotationTrigger::new(t0);
         assert!(!trigger.should_rotate(t0 + Duration::minutes(20))); // 14:55 -> false
-        assert!(trigger.should_rotate(t0 + Duration::minutes(26)));  // 15:01 -> true
+        assert!(trigger.should_rotate(t0 + Duration::minutes(26))); // 15:01 -> true
     }
 }

@@ -37,9 +37,8 @@ impl NdjsonWriter {
     }
 
     pub fn write_record<T: serde::Serialize>(&mut self, record: &T) -> std::io::Result<()> {
-        let json_line = serde_json::to_string(record).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, e)
-        })?;
+        let json_line = serde_json::to_string(record)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
         self.writer.write_all(json_line.as_bytes())?;
         self.writer.write_all(b"\n")?;

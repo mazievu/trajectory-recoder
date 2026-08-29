@@ -38,24 +38,32 @@ impl SqliteVerifier {
         };
 
         // 1. Run PRAGMA integrity_check
-        let integrity_res: Result<String, _> = conn.query_row("PRAGMA integrity_check;", [], |row| row.get(0));
+        let integrity_res: Result<String, _> =
+            conn.query_row("PRAGMA integrity_check;", [], |row| row.get(0));
         match integrity_res {
             Ok(ref val) if val == "ok" => {
                 report.integrity_check_passed = true;
             }
             Ok(ref val) => {
                 report.integrity_check_passed = false;
-                report.errors.push(format!("PRAGMA integrity_check failed with: {}", val));
+                report
+                    .errors
+                    .push(format!("PRAGMA integrity_check failed with: {}", val));
             }
             Err(e) => {
                 report.integrity_check_passed = false;
-                report.errors.push(format!("Failed to execute integrity_check: {}", e));
+                report
+                    .errors
+                    .push(format!("Failed to execute integrity_check: {}", e));
             }
         }
 
         // 2. Check table existence and row counts
         for &table in Self::REQUIRED_TABLES {
-            let count_query = format!("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{}';", table);
+            let count_query = format!(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='{}';",
+                table
+            );
             let exists: u64 = conn.query_row(&count_query, [], |r| r.get(0)).unwrap_or(0);
             if exists == 0 {
                 report.missing_tables.push(table.to_string());

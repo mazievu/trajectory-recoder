@@ -101,15 +101,23 @@ impl DragDropStateMachine {
         let dx = (coords.physical_x - state.start_coords.physical_x) as f64;
         let dy = (coords.physical_y - state.start_coords.physical_y) as f64;
         let distance_px = (dx * dx + dy * dy).sqrt();
-        let duration_ms = Instant::now().duration_since(state.start_instant).as_millis() as u64;
+        let duration_ms = Instant::now()
+            .duration_since(state.start_instant)
+            .as_millis() as u64;
 
         let params = DragDropParams {
             start_coords: state.start_coords,
             end_coords: coords,
             distance_px,
             path_summary: Some(format!("dx={:.1}, dy={:.1}", dx, dy)),
-            source_target: state.source_target.automation_id.or(state.source_target.name),
-            destination_target: dest_target.automation_id.clone().or(dest_target.name.clone()),
+            source_target: state
+                .source_target
+                .automation_id
+                .or(state.source_target.name),
+            destination_target: dest_target
+                .automation_id
+                .clone()
+                .or(dest_target.name.clone()),
         };
 
         Some(CanonicalAction {

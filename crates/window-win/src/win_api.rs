@@ -2,17 +2,17 @@
 pub mod native {
     use crate::model::WindowState;
     use core_types::metadata::BoundingRect;
-    use windows::core::PWSTR;
     use windows::Win32::Foundation::{HWND, RECT};
     use windows::Win32::System::ProcessStatus::GetModuleFileNameExW;
     use windows::Win32::System::Threading::{
-        OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION,
-        PROCESS_VM_READ,
+        OpenProcess, PROCESS_NAME_FORMAT, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_VM_READ,
+        QueryFullProcessImageNameW,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         GetForegroundWindow, GetWindowRect, GetWindowTextLengthW, GetWindowTextW,
         GetWindowThreadProcessId, IsIconic, IsWindow, IsWindowVisible, IsZoomed,
     };
+    use windows::core::PWSTR;
 
     pub fn get_foreground_hwnd() -> u64 {
         unsafe {
@@ -121,11 +121,7 @@ pub mod native {
     pub fn get_window_dpi(hwnd: u64) -> u32 {
         unsafe {
             let dpi = windows::Win32::UI::HiDpi::GetDpiForWindow(HWND(hwnd as *mut _));
-            if dpi > 0 {
-                dpi
-            } else {
-                96
-            }
+            if dpi > 0 { dpi } else { 96 }
         }
     }
 

@@ -66,7 +66,9 @@ impl MonitorTopology {
             let mut info = MONITORINFOEXW::default();
             info.monitorInfo.cbSize = std::mem::size_of::<MONITORINFOEXW>() as u32;
 
-            if unsafe { GetMonitorInfoW(hmonitor, &mut info.monitorInfo as *mut _ as *mut _).as_bool() } {
+            if unsafe {
+                GetMonitorInfoW(hmonitor, &mut info.monitorInfo as *mut _ as *mut _).as_bool()
+            } {
                 let rect = info.monitorInfo.rcMonitor;
                 let is_primary = (info.monitorInfo.dwFlags & 1) != 0;
 

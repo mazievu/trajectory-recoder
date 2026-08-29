@@ -1,10 +1,10 @@
 use axum::{
+    Json, Router,
     body::Bytes,
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::IntoResponse,
     routing::{get, post, put},
-    Json, Router,
 };
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -57,9 +57,18 @@ pub async fn start_mock_server() -> Result<MockServerHandle, Box<dyn std::error:
         .route("/api/v1/machines/register", post(handle_register_machine))
         .route("/api/v1/machines/heartbeat", post(handle_heartbeat))
         .route("/api/v1/sessions", post(handle_create_session))
-        .route("/api/v1/sessions/:session_id/chunks/:chunk_index", put(handle_upload_chunk))
-        .route("/api/v1/sessions/:session_id/upload-status", get(handle_upload_status))
-        .route("/api/v1/sessions/:session_id/complete", post(handle_complete_session))
+        .route(
+            "/api/v1/sessions/:session_id/chunks/:chunk_index",
+            put(handle_upload_chunk),
+        )
+        .route(
+            "/api/v1/sessions/:session_id/upload-status",
+            get(handle_upload_status),
+        )
+        .route(
+            "/api/v1/sessions/:session_id/complete",
+            post(handle_complete_session),
+        )
         .with_state(state.clone());
 
     let listener = TcpListener::bind("127.0.0.1:0").await?;
@@ -87,23 +96,34 @@ async fn handle_register_machine(
     State(state): State<MockServerState>,
     Json(payload): Json<serde_json::Value>,
 ) -> impl IntoResponse {
-    let machine_id = payload.get("machine_id").and_then(|v| v.as_str()).unwrap_or("machine_default");
+    let machine_id = payload
+        .get("machine_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("machine_default");
     let token = format!("tok_{}", uuid::Uuid::new_v4());
-    state.registered_machines.lock().unwrap().insert(machine_id.to_string(), token.clone());
+    state
+        .registered_machines
+        .lock()
+        .unwrap()
+        .insert(machine_id.to_string(), token.clone());
 
-    (StatusCode::OK, Json(serde_json::json!({
-        "machine_id": machine_id,
-        "token": token,
-        "status": "registered"
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "machine_id": machine_id,
+            "token": token,
+            "status": "registered"
+        })),
+    )
 }
 
-async fn handle_heartbeat(
-    State(state): State<MockServerState>,
-) -> impl IntoResponse {
+async fn handle_heartbeat(State(state): State<MockServerState>) -> impl IntoResponse {
     let mut count = state.heartbeat_count.lock().unwrap();
     *count += 1;
-    (StatusCode::OK, Json(serde_json::json!({ "status": "ok", "heartbeat_count": *count })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "ok", "heartbeat_count": *count })),
+    )
 }
 
 async fn handle_create_session(
@@ -112,27 +132,44 @@ async fn handle_create_session(
 ) -> impl IntoResponse {
     let session_id = match payload.get("session_id").and_then(|v| v.as_str()) {
         Some(id) => id.to_string(),
-        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Missing session_id" }))),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "Missing session_id" })),
+            );
+        }
     };
-    let total_bytes = payload.get("total_bytes").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-    let total_chunks = payload.get("total_chunks").and_then(|v| v.as_u64()).unwrap_or(1) as usize;
+    let total_bytes = payload
+        .get("total_bytes")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0) as usize;
+    let total_chunks = payload
+        .get("total_chunks")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(1) as usize;
 
     let mut sessions = state.sessions.lock().unwrap();
-    sessions.insert(session_id.clone(), MockSessionState {
-        session_id: session_id.clone(),
-        total_bytes,
-        total_chunks,
-        uploaded_chunks: HashSet::new(),
-        chunk_payloads: HashMap::new(),
-        is_completed: false,
-        completed_archive_sha256: None,
-    });
+    sessions.insert(
+        session_id.clone(),
+        MockSessionState {
+            session_id: session_id.clone(),
+            total_bytes,
+            total_chunks,
+            uploaded_chunks: HashSet::new(),
+            chunk_payloads: HashMap::new(),
+            is_completed: false,
+            completed_archive_sha256: None,
+        },
+    );
 
-    (StatusCode::OK, Json(serde_json::json!({
-        "session_id": session_id,
-        "status": "created",
-        "expected_chunks": total_chunks
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "session_id": session_id,
+            "status": "created",
+            "expected_chunks": total_chunks
+        })),
+    )
 }
 
 async fn handle_upload_chunk(
@@ -143,7 +180,12 @@ async fn handle_upload_chunk(
 ) -> impl IntoResponse {
     let expected_hash = match headers.get("X-Chunk-SHA256").and_then(|h| h.to_str().ok()) {
         Some(h) => h.to_string(),
-        None => return (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": "Missing X-Chunk-SHA256 header" }))),
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": "Missing X-Chunk-SHA256 header" })),
+            );
+        }
     };
 
     let mut hasher = Sha256::new();
@@ -151,24 +193,33 @@ async fn handle_upload_chunk(
     let actual_hash = format!("{:x}", hasher.finalize());
 
     if actual_hash != expected_hash {
-        return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
-            "error": "Checksum mismatch",
-            "expected": expected_hash,
-            "actual": actual_hash
-        })));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "Checksum mismatch",
+                "expected": expected_hash,
+                "actual": actual_hash
+            })),
+        );
     }
 
     let mut sessions = state.sessions.lock().unwrap();
     if let Some(session) = sessions.get_mut(&session_id) {
         session.uploaded_chunks.insert(chunk_index);
         session.chunk_payloads.insert(chunk_index, body.to_vec());
-        (StatusCode::OK, Json(serde_json::json!({
-            "session_id": session_id,
-            "chunk_index": chunk_index,
-            "status": "stored"
-        })))
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "session_id": session_id,
+                "chunk_index": chunk_index,
+                "status": "stored"
+            })),
+        )
     } else {
-        (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Session not found" })))
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Session not found" })),
+        )
     }
 }
 
@@ -188,14 +239,20 @@ async fn handle_upload_status(
             }
         }
 
-        (StatusCode::OK, Json(serde_json::json!({
-            "session_id": session_id,
-            "uploaded_chunks": uploaded,
-            "missing_chunks": missing,
-            "is_complete": missing.is_empty()
-        })))
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "session_id": session_id,
+                "uploaded_chunks": uploaded,
+                "missing_chunks": missing,
+                "is_complete": missing.is_empty()
+            })),
+        )
     } else {
-        (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Session not found" })))
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Session not found" })),
+        )
     }
 }
 
@@ -206,16 +263,25 @@ async fn handle_complete_session(
 ) -> impl IntoResponse {
     let mut sessions = state.sessions.lock().unwrap();
     if let Some(session) = sessions.get_mut(&session_id) {
-        let archive_sha256 = payload.get("archive_sha256").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let archive_sha256 = payload
+            .get("archive_sha256")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         session.is_completed = true;
         session.completed_archive_sha256 = archive_sha256;
 
-        (StatusCode::OK, Json(serde_json::json!({
-            "session_id": session_id,
-            "status": "accepted",
-            "archive_sha256_verified": true
-        })))
+        (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "session_id": session_id,
+                "status": "accepted",
+                "archive_sha256_verified": true
+            })),
+        )
     } else {
-        (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "Session not found" })))
+        (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "Session not found" })),
+        )
     }
 }

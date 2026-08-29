@@ -1,19 +1,19 @@
+use bytes::{BufMut, BytesMut};
 use config::{ConfigManager, ConfigValidationError, RecorderConfig, Validate};
 use core_types::{
     ActionParameters, ActionType, CanonicalAction, CanonicalActionBuilder, ClickParams,
     ClipboardParams, ContextMetadata, DialogParams, DragDropParams, DualTimestamp,
     FileOperationParams, GlobalEventId, KeyPressParams, ModifierState, MouseButton,
-    NavigationParams, Point2D, RawEvent, RawEventPayload, ScrollDirection, ScrollParams,
-    SessionEventId, SessionId, ShortcutParams, SystemStateParams, TargetMetadata, TypeTextParams,
-    UnknownParams, WaitParams, WindowLifecycleParams, SCHEMA_IDENTIFIER, SCHEMA_VERSION,
+    NavigationParams, Point2D, RawEvent, RawEventPayload, SCHEMA_IDENTIFIER, SCHEMA_VERSION,
+    ScrollDirection, ScrollParams, SessionEventId, SessionId, ShortcutParams, SystemStateParams,
+    TargetMetadata, TypeTextParams, UnknownParams, WaitParams, WindowLifecycleParams,
 };
-use ipc::{IpcError, IpcMessage, MsgPackCodec, MAX_IPC_FRAME_SIZE};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use ipc::{IpcError, IpcMessage, MAX_IPC_FRAME_SIZE, MsgPackCodec};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use test_support::MockNamedPipePair;
 use tokio_util::codec::{Decoder, Encoder};
-use bytes::{BufMut, BytesMut};
 
 // =========================================================================
 // AREA 1: IPC ADVERSARIAL STRESS & CORRUPTION HARNESS
@@ -46,7 +46,9 @@ fn test_ipc_burst_encode_decode_10k_messages() {
     // Encode burst of 10,000 messages into contiguous buffer
     for i in 0..message_count {
         let msg = &sample_messages[i % sample_messages.len()];
-        codec.encode(msg.clone(), &mut buffer).expect("Encode failed");
+        codec
+            .encode(msg.clone(), &mut buffer)
+            .expect("Encode failed");
     }
 
     assert!(buffer.len() > message_count * 5);
@@ -72,7 +74,9 @@ fn test_ipc_partial_frames_single_byte_fragmentation() {
         config_toml: "version = 2\n[capture]\nvideo_fps = 30".to_string(),
         version: 2,
     };
-    codec.encode(msg.clone(), &mut encoded_buf).expect("Encode failed");
+    codec
+        .encode(msg.clone(), &mut encoded_buf)
+        .expect("Encode failed");
 
     let total_len = encoded_buf.len();
     let mut feed_buf = BytesMut::new();
@@ -80,11 +84,22 @@ fn test_ipc_partial_frames_single_byte_fragmentation() {
     // Feed bytes one-by-one into the decoder
     for (i, &byte) in encoded_buf.iter().enumerate() {
         feed_buf.put_u8(byte);
-        let res = codec.decode(&mut feed_buf).expect("Decode step should not error");
+        let res = codec
+            .decode(&mut feed_buf)
+            .expect("Decode step should not error");
         if i + 1 < total_len {
-            assert!(res.is_none(), "Premature decoding at byte {} of {}", i + 1, total_len);
+            assert!(
+                res.is_none(),
+                "Premature decoding at byte {} of {}",
+                i + 1,
+                total_len
+            );
         } else {
-            assert_eq!(res, Some(msg.clone()), "Failed to decode full frame on final byte");
+            assert_eq!(
+                res,
+                Some(msg.clone()),
+                "Failed to decode full frame on final byte"
+            );
         }
     }
 
@@ -180,7 +195,10 @@ async fn test_config_high_concurrency_reads_and_writes() {
                 let fps = cfg.capture.video_fps;
                 assert!(fps >= 1 && fps <= 60, "Corrupt video_fps: {fps}");
                 let chunk_size = cfg.upload.chunk_size_mb;
-                assert!(chunk_size >= 64 && chunk_size <= 256, "Corrupt chunk_size: {chunk_size}");
+                assert!(
+                    chunk_size >= 64 && chunk_size <= 256,
+                    "Corrupt chunk_size: {chunk_size}"
+                );
                 counter.fetch_add(1, Ordering::Relaxed);
                 tokio::task::yield_now().await;
             }
@@ -196,7 +214,10 @@ async fn test_config_high_concurrency_reads_and_writes() {
                 let mut new_cfg = (*mgr.get()).clone();
                 new_cfg.capture.video_fps = (10 + (i % 50)) as u32;
                 new_cfg.upload.chunk_size_mb = 64 + (i % 128);
-                new_cfg.privacy.excluded_apps.push(format!("App_{writer_id}_{i}.exe"));
+                new_cfg
+                    .privacy
+                    .excluded_apps
+                    .push(format!("App_{writer_id}_{i}.exe"));
                 mgr.update(new_cfg).expect("Config update failed");
                 tokio::task::yield_now().await;
             }
@@ -215,7 +236,11 @@ async fn test_config_high_concurrency_reads_and_writes() {
     }
 
     let total_reads = read_counter.load(Ordering::Relaxed);
-    assert!(total_reads > 10_000, "Expected >10k concurrent reads, got {}", total_reads);
+    assert!(
+        total_reads > 10_000,
+        "Expected >10k concurrent reads, got {}",
+        total_reads
+    );
 }
 
 #[test]
@@ -223,77 +248,134 @@ fn test_config_validation_adversarial_matrix() {
     // 1. Invalid version (0)
     let mut cfg = RecorderConfig::default();
     cfg.version = 0;
-    assert_eq!(cfg.validate(), Err(ConfigValidationError::InvalidVersion(0)));
+    assert_eq!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidVersion(0))
+    );
 
     // 2. Chunk size boundaries (<64 or >256)
     let mut cfg = RecorderConfig::default();
     cfg.upload.chunk_size_mb = 0;
-    assert_eq!(cfg.validate(), Err(ConfigValidationError::InvalidChunkSize(0)));
+    assert_eq!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidChunkSize(0))
+    );
     cfg.upload.chunk_size_mb = 63;
-    assert_eq!(cfg.validate(), Err(ConfigValidationError::InvalidChunkSize(63)));
+    assert_eq!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidChunkSize(63))
+    );
     cfg.upload.chunk_size_mb = 257;
-    assert_eq!(cfg.validate(), Err(ConfigValidationError::InvalidChunkSize(257)));
+    assert_eq!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidChunkSize(257))
+    );
 
     // 3. Screenshot quality (0 or >100)
     let mut cfg = RecorderConfig::default();
     cfg.capture.screenshot_quality = 0;
-    assert_eq!(cfg.validate(), Err(ConfigValidationError::InvalidScreenshotQuality(0)));
+    assert_eq!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidScreenshotQuality(0))
+    );
     cfg.capture.screenshot_quality = 101;
-    assert_eq!(cfg.validate(), Err(ConfigValidationError::InvalidScreenshotQuality(101)));
+    assert_eq!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidScreenshotQuality(101))
+    );
 
     // 4. Screenshot diff threshold (<0.0 or >1.0)
     let mut cfg = RecorderConfig::default();
     cfg.capture.screenshot_diff_threshold = -0.01;
-    assert!(matches!(cfg.validate(), Err(ConfigValidationError::InvalidDiffThreshold(_))));
+    assert!(matches!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidDiffThreshold(_))
+    ));
     cfg.capture.screenshot_diff_threshold = 1.01;
-    assert!(matches!(cfg.validate(), Err(ConfigValidationError::InvalidDiffThreshold(_))));
+    assert!(matches!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidDiffThreshold(_))
+    ));
 
     // 5. Video FPS (0 or >60)
     let mut cfg = RecorderConfig::default();
     cfg.capture.video_fps = 0;
-    assert_eq!(cfg.validate(), Err(ConfigValidationError::InvalidVideoFps(0)));
+    assert_eq!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidVideoFps(0))
+    );
     cfg.capture.video_fps = 61;
-    assert_eq!(cfg.validate(), Err(ConfigValidationError::InvalidVideoFps(61)));
+    assert_eq!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidVideoFps(61))
+    );
 
     // 6. Video Bitrate (<100 or >50000)
     let mut cfg = RecorderConfig::default();
     cfg.capture.video_bitrate_kbps = 99;
-    assert_eq!(cfg.validate(), Err(ConfigValidationError::InvalidVideoBitrate(99)));
+    assert_eq!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidVideoBitrate(99))
+    );
     cfg.capture.video_bitrate_kbps = 50001;
-    assert_eq!(cfg.validate(), Err(ConfigValidationError::InvalidVideoBitrate(50001)));
+    assert_eq!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidVideoBitrate(50001))
+    );
 
     // 7. Entropy threshold (<0.0 or >8.0)
     let mut cfg = RecorderConfig::default();
     cfg.privacy.entropy_threshold = -0.5;
-    assert!(matches!(cfg.validate(), Err(ConfigValidationError::InvalidEntropyThreshold(_))));
+    assert!(matches!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidEntropyThreshold(_))
+    ));
     cfg.privacy.entropy_threshold = 8.1;
-    assert!(matches!(cfg.validate(), Err(ConfigValidationError::InvalidEntropyThreshold(_))));
+    assert!(matches!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidEntropyThreshold(_))
+    ));
 
     // 8. Malformed regex patterns
     let mut cfg = RecorderConfig::default();
     cfg.privacy.custom_regex_patterns = vec!["[a-z0-9(".to_string()];
-    assert!(matches!(cfg.validate(), Err(ConfigValidationError::InvalidRegexPattern { .. })));
+    assert!(matches!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidRegexPattern { .. })
+    ));
 
     // 9. Inverted disk pressure watermarks
     let mut cfg = RecorderConfig::default();
     cfg.spool.disk_pressure_level1_pct = 85;
     cfg.spool.disk_pressure_level2_pct = 70; // L1 > L2
-    assert!(matches!(cfg.validate(), Err(ConfigValidationError::InvalidDiskThresholds { .. })));
+    assert!(matches!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidDiskThresholds { .. })
+    ));
     cfg.spool.disk_pressure_level1_pct = 70;
     cfg.spool.disk_pressure_level2_pct = 85;
     cfg.spool.disk_pressure_level3_pct = 101; // L3 > 100
-    assert!(matches!(cfg.validate(), Err(ConfigValidationError::InvalidDiskThresholds { .. })));
+    assert!(matches!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidDiskThresholds { .. })
+    ));
 
     // 10. Retry backoff initial > max
     let mut cfg = RecorderConfig::default();
     cfg.upload.initial_retry_backoff_ms = 10_000;
     cfg.upload.max_retry_backoff_ms = 1_000;
-    assert!(matches!(cfg.validate(), Err(ConfigValidationError::InvalidRetryBackoff { .. })));
+    assert!(matches!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidRetryBackoff { .. })
+    ));
 
     // 11. Empty server URL
     let mut cfg = RecorderConfig::default();
     cfg.upload.server_url = "   ".to_string();
-    assert!(matches!(cfg.validate(), Err(ConfigValidationError::InvalidServerUrl(_))));
+    assert!(matches!(
+        cfg.validate(),
+        Err(ConfigValidationError::InvalidServerUrl(_))
+    ));
 
     // 12. Invalid Server port 0
     let mut cfg = RecorderConfig::default();
@@ -318,7 +400,11 @@ fn test_dual_timestamp_ordering_and_window_boundaries() {
 
     // Duration calculation
     assert_eq!(t1.duration_since(&t0), Some(Duration::from_nanos(500_000)));
-    assert_eq!(t0.duration_since(&t1), None, "Reverse duration should return None");
+    assert_eq!(
+        t0.duration_since(&t1),
+        None,
+        "Reverse duration should return None"
+    );
 
     // Elapsed ms
     assert_eq!(t2.elapsed_ms_since(&t0), Some(10));
@@ -337,48 +423,169 @@ fn test_dual_timestamp_ordering_and_window_boundaries() {
 #[test]
 fn test_all_39_action_types_and_parameters_roundtrip() {
     let all_39_actions = vec![
-        (ActionType::Click, ActionParameters::Click(ClickParams::default())),
-        (ActionType::DoubleClick, ActionParameters::DoubleClick(ClickParams::default())),
-        (ActionType::RightClick, ActionParameters::RightClick(ClickParams::default())),
-        (ActionType::MiddleClick, ActionParameters::MiddleClick(ClickParams::default())),
-        (ActionType::DragDrop, ActionParameters::DragDrop(DragDropParams::default())),
-        (ActionType::Scroll, ActionParameters::Scroll(ScrollParams::default())),
-        (ActionType::TypeText, ActionParameters::TypeText(TypeTextParams::default())),
-        (ActionType::KeyPress, ActionParameters::KeyPress(KeyPressParams::default())),
-        (ActionType::Shortcut, ActionParameters::Shortcut(ShortcutParams::default())),
-        (ActionType::Copy, ActionParameters::Clipboard(ClipboardParams::default())),
-        (ActionType::Cut, ActionParameters::Clipboard(ClipboardParams::default())),
-        (ActionType::Paste, ActionParameters::Clipboard(ClipboardParams::default())),
-        (ActionType::WindowSwitch, ActionParameters::Window(WindowLifecycleParams::default())),
-        (ActionType::WindowOpen, ActionParameters::Window(WindowLifecycleParams::default())),
-        (ActionType::WindowClose, ActionParameters::Window(WindowLifecycleParams::default())),
-        (ActionType::AppOpen, ActionParameters::Window(WindowLifecycleParams::default())),
-        (ActionType::AppClose, ActionParameters::Window(WindowLifecycleParams::default())),
-        (ActionType::Navigate, ActionParameters::Navigation(NavigationParams::default())),
-        (ActionType::FileOpen, ActionParameters::File(FileOperationParams::default())),
-        (ActionType::FileSave, ActionParameters::File(FileOperationParams::default())),
-        (ActionType::FileSaveAs, ActionParameters::File(FileOperationParams::default())),
-        (ActionType::FileCreate, ActionParameters::File(FileOperationParams::default())),
-        (ActionType::FileCopy, ActionParameters::File(FileOperationParams::default())),
-        (ActionType::FileMove, ActionParameters::File(FileOperationParams::default())),
-        (ActionType::FileRename, ActionParameters::File(FileOperationParams::default())),
-        (ActionType::FileDelete, ActionParameters::File(FileOperationParams::default())),
-        (ActionType::FileUpload, ActionParameters::File(FileOperationParams::default())),
-        (ActionType::FileDownload, ActionParameters::File(FileOperationParams::default())),
-        (ActionType::FileExport, ActionParameters::File(FileOperationParams::default())),
-        (ActionType::DialogOpen, ActionParameters::Dialog(DialogParams::default())),
-        (ActionType::DialogConfirm, ActionParameters::Dialog(DialogParams::default())),
-        (ActionType::DialogCancel, ActionParameters::Dialog(DialogParams::default())),
-        (ActionType::Wait, ActionParameters::Wait(WaitParams::default())),
-        (ActionType::UserIdle, ActionParameters::System(SystemStateParams::default())),
-        (ActionType::SystemLock, ActionParameters::System(SystemStateParams::default())),
-        (ActionType::SystemUnlock, ActionParameters::System(SystemStateParams::default())),
-        (ActionType::SystemSleep, ActionParameters::System(SystemStateParams::default())),
-        (ActionType::SystemResume, ActionParameters::System(SystemStateParams::default())),
-        (ActionType::UnknownInteraction, ActionParameters::Unknown(UnknownParams::default())),
+        (
+            ActionType::Click,
+            ActionParameters::Click(ClickParams::default()),
+        ),
+        (
+            ActionType::DoubleClick,
+            ActionParameters::DoubleClick(ClickParams::default()),
+        ),
+        (
+            ActionType::RightClick,
+            ActionParameters::RightClick(ClickParams::default()),
+        ),
+        (
+            ActionType::MiddleClick,
+            ActionParameters::MiddleClick(ClickParams::default()),
+        ),
+        (
+            ActionType::DragDrop,
+            ActionParameters::DragDrop(DragDropParams::default()),
+        ),
+        (
+            ActionType::Scroll,
+            ActionParameters::Scroll(ScrollParams::default()),
+        ),
+        (
+            ActionType::TypeText,
+            ActionParameters::TypeText(TypeTextParams::default()),
+        ),
+        (
+            ActionType::KeyPress,
+            ActionParameters::KeyPress(KeyPressParams::default()),
+        ),
+        (
+            ActionType::Shortcut,
+            ActionParameters::Shortcut(ShortcutParams::default()),
+        ),
+        (
+            ActionType::Copy,
+            ActionParameters::Clipboard(ClipboardParams::default()),
+        ),
+        (
+            ActionType::Cut,
+            ActionParameters::Clipboard(ClipboardParams::default()),
+        ),
+        (
+            ActionType::Paste,
+            ActionParameters::Clipboard(ClipboardParams::default()),
+        ),
+        (
+            ActionType::WindowSwitch,
+            ActionParameters::Window(WindowLifecycleParams::default()),
+        ),
+        (
+            ActionType::WindowOpen,
+            ActionParameters::Window(WindowLifecycleParams::default()),
+        ),
+        (
+            ActionType::WindowClose,
+            ActionParameters::Window(WindowLifecycleParams::default()),
+        ),
+        (
+            ActionType::AppOpen,
+            ActionParameters::Window(WindowLifecycleParams::default()),
+        ),
+        (
+            ActionType::AppClose,
+            ActionParameters::Window(WindowLifecycleParams::default()),
+        ),
+        (
+            ActionType::Navigate,
+            ActionParameters::Navigation(NavigationParams::default()),
+        ),
+        (
+            ActionType::FileOpen,
+            ActionParameters::File(FileOperationParams::default()),
+        ),
+        (
+            ActionType::FileSave,
+            ActionParameters::File(FileOperationParams::default()),
+        ),
+        (
+            ActionType::FileSaveAs,
+            ActionParameters::File(FileOperationParams::default()),
+        ),
+        (
+            ActionType::FileCreate,
+            ActionParameters::File(FileOperationParams::default()),
+        ),
+        (
+            ActionType::FileCopy,
+            ActionParameters::File(FileOperationParams::default()),
+        ),
+        (
+            ActionType::FileMove,
+            ActionParameters::File(FileOperationParams::default()),
+        ),
+        (
+            ActionType::FileRename,
+            ActionParameters::File(FileOperationParams::default()),
+        ),
+        (
+            ActionType::FileDelete,
+            ActionParameters::File(FileOperationParams::default()),
+        ),
+        (
+            ActionType::FileUpload,
+            ActionParameters::File(FileOperationParams::default()),
+        ),
+        (
+            ActionType::FileDownload,
+            ActionParameters::File(FileOperationParams::default()),
+        ),
+        (
+            ActionType::FileExport,
+            ActionParameters::File(FileOperationParams::default()),
+        ),
+        (
+            ActionType::DialogOpen,
+            ActionParameters::Dialog(DialogParams::default()),
+        ),
+        (
+            ActionType::DialogConfirm,
+            ActionParameters::Dialog(DialogParams::default()),
+        ),
+        (
+            ActionType::DialogCancel,
+            ActionParameters::Dialog(DialogParams::default()),
+        ),
+        (
+            ActionType::Wait,
+            ActionParameters::Wait(WaitParams::default()),
+        ),
+        (
+            ActionType::UserIdle,
+            ActionParameters::System(SystemStateParams::default()),
+        ),
+        (
+            ActionType::SystemLock,
+            ActionParameters::System(SystemStateParams::default()),
+        ),
+        (
+            ActionType::SystemUnlock,
+            ActionParameters::System(SystemStateParams::default()),
+        ),
+        (
+            ActionType::SystemSleep,
+            ActionParameters::System(SystemStateParams::default()),
+        ),
+        (
+            ActionType::SystemResume,
+            ActionParameters::System(SystemStateParams::default()),
+        ),
+        (
+            ActionType::UnknownInteraction,
+            ActionParameters::Unknown(UnknownParams::default()),
+        ),
     ];
 
-    assert_eq!(all_39_actions.len(), 39, "Must strictly verify exactly 39 ActionTypes");
+    assert_eq!(
+        all_39_actions.len(),
+        39,
+        "Must strictly verify exactly 39 ActionTypes"
+    );
 
     let base_ts = DualTimestamp::now();
 
@@ -397,12 +604,14 @@ fn test_all_39_action_types_and_parameters_roundtrip() {
 
         // 1. JSON Roundtrip
         let json_str = serde_json::to_string(&action).expect("JSON serialize");
-        let deserialized_json: CanonicalAction = serde_json::from_str(&json_str).expect("JSON deserialize");
+        let deserialized_json: CanonicalAction =
+            serde_json::from_str(&json_str).expect("JSON deserialize");
         assert_eq!(action, deserialized_json);
 
         // 2. MessagePack Roundtrip
         let msgpack_bytes = rmp_serde::to_vec_named(&action).expect("MsgPack serialize");
-        let deserialized_msgpack: CanonicalAction = rmp_serde::from_slice(&msgpack_bytes).expect("MsgPack deserialize");
+        let deserialized_msgpack: CanonicalAction =
+            rmp_serde::from_slice(&msgpack_bytes).expect("MsgPack deserialize");
         assert_eq!(action, deserialized_msgpack);
     }
 }
@@ -578,6 +787,11 @@ fn test_config_file_save_and_load_roundtrip() {
     let loaded_manager = ConfigManager::from_file(&config_path).unwrap();
     assert_eq!(loaded_manager.get().machine.machine_id, "TEST-PC-ROUNDTRIP");
     assert_eq!(loaded_manager.get().capture.video_fps, 25);
-    assert!(loaded_manager.get().privacy.excluded_apps.contains(&"KeePass.exe".to_string()));
+    assert!(
+        loaded_manager
+            .get()
+            .privacy
+            .excluded_apps
+            .contains(&"KeePass.exe".to_string())
+    );
 }
-

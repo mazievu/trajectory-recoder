@@ -4,11 +4,10 @@ pub mod native_listener {
     use crate::hasher::compute_sha256;
     use crossbeam_channel::Sender;
     use parking_lot::RwLock;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread::{self, JoinHandle};
     use tracing::{error, info, warn};
-    use windows::core::PCWSTR;
     use windows::Win32::Foundation::{HINSTANCE, HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::System::DataExchange::{
         AddClipboardFormatListener, CloseClipboard, EnumClipboardFormats, GetClipboardData,
@@ -16,10 +15,11 @@ pub mod native_listener {
     };
     use windows::Win32::System::Memory::{GlobalLock, GlobalSize, GlobalUnlock};
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
-        PostMessageW, RegisterClassExW, TranslateMessage, CS_HREDRAW, CS_VREDRAW, HMENU, MSG,
-        WINDOW_EX_STYLE, WM_CLIPBOARDUPDATE, WM_DESTROY, WM_QUIT, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
+        CS_HREDRAW, CS_VREDRAW, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
+        GetMessageW, HMENU, MSG, PostMessageW, RegisterClassExW, TranslateMessage, WINDOW_EX_STYLE,
+        WM_CLIPBOARDUPDATE, WM_DESTROY, WM_QUIT, WNDCLASSEXW, WS_OVERLAPPEDWINDOW,
     };
+    use windows::core::PCWSTR;
 
     #[derive(Debug, Clone)]
     pub struct ClipboardMetadataMsg {
@@ -100,14 +100,18 @@ pub mod native_listener {
                 // Read data handle safely to hash and measure length (fail-closed: do not save raw text)
                 if let Ok(handle) = GetClipboardData(first_fmt) {
                     if !handle.0.is_null() {
-                        let size = GlobalSize(windows::Win32::Foundation::HGLOBAL(handle.0 as *mut _));
+                        let size =
+                            GlobalSize(windows::Win32::Foundation::HGLOBAL(handle.0 as *mut _));
                         byte_length = size;
 
-                        let ptr = GlobalLock(windows::Win32::Foundation::HGLOBAL(handle.0 as *mut _));
+                        let ptr =
+                            GlobalLock(windows::Win32::Foundation::HGLOBAL(handle.0 as *mut _));
                         if !ptr.is_null() && size > 0 {
                             let slice = std::slice::from_raw_parts(ptr as *const u8, size);
                             hash_sha256 = compute_sha256(slice);
-                            let _ = GlobalUnlock(windows::Win32::Foundation::HGLOBAL(handle.0 as *mut _));
+                            let _ = GlobalUnlock(windows::Win32::Foundation::HGLOBAL(
+                                handle.0 as *mut _,
+                            ));
                         }
                     }
                 }
@@ -143,8 +147,10 @@ pub mod native_listener {
             let running_clone = running.clone();
 
             let handle = thread::spawn(move || {
-                let class_name: Vec<u16> = "TrajectoryClipboardWatcherClass\0".encode_utf16().collect();
-                let window_title: Vec<u16> = "TrajectoryClipboardWatcher\0".encode_utf16().collect();
+                let class_name: Vec<u16> =
+                    "TrajectoryClipboardWatcherClass\0".encode_utf16().collect();
+                let window_title: Vec<u16> =
+                    "TrajectoryClipboardWatcher\0".encode_utf16().collect();
 
                 let hinstance = HINSTANCE::default();
                 let wc = WNDCLASSEXW {
@@ -182,10 +188,14 @@ pub mod native_listener {
                     match hwnd {
                         Ok(h) if !h.0.is_null() => {
                             if AddClipboardFormatListener(h).is_ok() {
-                                info!("AddClipboardFormatListener attached successfully to HWND {:?}", h.0);
+                                info!(
+                                    "AddClipboardFormatListener attached successfully to HWND {:?}",
+                                    h.0
+                                );
                                 let _ = hwnd_tx.send(Ok(h.0 as u64));
                             } else {
-                                let _ = hwnd_tx.send(Err("AddClipboardFormatListener failed".to_string()));
+                                let _ = hwnd_tx
+                                    .send(Err("AddClipboardFormatListener failed".to_string()));
                                 return;
                             }
                         }

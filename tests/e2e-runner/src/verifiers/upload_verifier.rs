@@ -73,7 +73,10 @@ impl UploadVerifier {
             .map_err(|e| format!("Failed to call init session: {}", e))?;
 
         if !init_resp.status().is_success() {
-            return Err(format!("Init session returned status {}", init_resp.status()));
+            return Err(format!(
+                "Init session returned status {}",
+                init_resp.status()
+            ));
         }
 
         // 2. Upload each chunk
@@ -82,7 +85,10 @@ impl UploadVerifier {
             let end = (offset + chunk.size_bytes).min(payload.len());
             let chunk_data = payload[offset..end].to_vec();
 
-            let put_url = format!("{}/api/v1/sessions/{}/chunks/{}", server_base_url, session_id, chunk.chunk_index);
+            let put_url = format!(
+                "{}/api/v1/sessions/{}/chunks/{}",
+                server_base_url, session_id, chunk.chunk_index
+            );
             let put_resp = client
                 .put(&put_url)
                 .header("X-Chunk-SHA256", &chunk.sha256)
@@ -92,7 +98,11 @@ impl UploadVerifier {
                 .map_err(|e| format!("Failed to upload chunk {}: {}", chunk.chunk_index, e))?;
 
             if !put_resp.status().is_success() {
-                return Err(format!("Upload chunk {} returned status {}", chunk.chunk_index, put_resp.status()));
+                return Err(format!(
+                    "Upload chunk {} returned status {}",
+                    chunk.chunk_index,
+                    put_resp.status()
+                ));
             }
 
             chunk.is_uploaded = true;
@@ -100,7 +110,10 @@ impl UploadVerifier {
         }
 
         // 3. Complete session
-        let complete_url = format!("{}/api/v1/sessions/{}/complete", server_base_url, session_id);
+        let complete_url = format!(
+            "{}/api/v1/sessions/{}/complete",
+            server_base_url, session_id
+        );
         let complete_resp = client
             .post(&complete_url)
             .json(&serde_json::json!({
@@ -112,7 +125,10 @@ impl UploadVerifier {
             .map_err(|e| format!("Failed to call complete session: {}", e))?;
 
         if !complete_resp.status().is_success() {
-            return Err(format!("Complete session returned status {}", complete_resp.status()));
+            return Err(format!(
+                "Complete session returned status {}",
+                complete_resp.status()
+            ));
         }
 
         Ok(plan)

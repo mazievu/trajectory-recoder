@@ -21,8 +21,8 @@ mod tests {
     use core_types::event::{EventSource, RawEvent, RawEventPayload, RawMouseEvent};
     use core_types::id::GlobalEventId;
     use core_types::timestamp::DualTimestamp;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::thread;
     use std::time::Duration;
 
@@ -45,11 +45,16 @@ mod tests {
         let bus = EventBus::<String>::new(EventBusConfig::default());
 
         // Publish in reverse priority order: P4, P3, P2, P1, P0
-        bus.publish(Priority::P4_Video, "video_frame".into()).unwrap();
-        bus.publish(Priority::P3_Screenshot, "screenshot".into()).unwrap();
-        bus.publish(Priority::P2_DomUia, "dom_click".into()).unwrap();
-        bus.publish(Priority::P1_Window, "window_focus".into()).unwrap();
-        bus.publish(Priority::P0_Input, "mouse_click".into()).unwrap();
+        bus.publish(Priority::P4_Video, "video_frame".into())
+            .unwrap();
+        bus.publish(Priority::P3_Screenshot, "screenshot".into())
+            .unwrap();
+        bus.publish(Priority::P2_DomUia, "dom_click".into())
+            .unwrap();
+        bus.publish(Priority::P1_Window, "window_focus".into())
+            .unwrap();
+        bus.publish(Priority::P0_Input, "mouse_click".into())
+            .unwrap();
 
         let receiver = bus.receiver();
 

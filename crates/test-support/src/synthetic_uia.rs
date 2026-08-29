@@ -1,5 +1,5 @@
-use std::time::Duration;
 use core_types::{BoundingBox, TargetMetadata};
+use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct SyntheticUiaElement {
@@ -57,7 +57,12 @@ impl SyntheticUiaTree {
             class_name: "StandardWindow".to_string(),
             automation_id: "wnd_main".to_string(),
             framework_id: "Win32".to_string(),
-            bounds: BoundingBox { x: 0, y: 0, width: 800, height: 600 },
+            bounds: BoundingBox {
+                x: 0,
+                y: 0,
+                width: 800,
+                height: 600,
+            },
             is_password: false,
             value: None,
             children: vec![
@@ -68,7 +73,12 @@ impl SyntheticUiaTree {
                     class_name: "TextBox".to_string(),
                     automation_id: "txt_username".to_string(),
                     framework_id: "Win32".to_string(),
-                    bounds: BoundingBox { x: 50, y: 100, width: 200, height: 30 },
+                    bounds: BoundingBox {
+                        x: 50,
+                        y: 100,
+                        width: 200,
+                        height: 30,
+                    },
                     is_password: false,
                     value: Some("john_doe".to_string()),
                     children: vec![],
@@ -80,7 +90,12 @@ impl SyntheticUiaTree {
                     class_name: "PasswordBox".to_string(),
                     automation_id: "txt_password".to_string(),
                     framework_id: "Win32".to_string(),
-                    bounds: BoundingBox { x: 50, y: 150, width: 200, height: 30 },
+                    bounds: BoundingBox {
+                        x: 50,
+                        y: 150,
+                        width: 200,
+                        height: 30,
+                    },
                     is_password: true,
                     value: Some("Secret123!".to_string()),
                     children: vec![],
@@ -92,7 +107,12 @@ impl SyntheticUiaTree {
                     class_name: "Button".to_string(),
                     automation_id: "btn_submit".to_string(),
                     framework_id: "Win32".to_string(),
-                    bounds: BoundingBox { x: 50, y: 200, width: 100, height: 35 },
+                    bounds: BoundingBox {
+                        x: 50,
+                        y: 200,
+                        width: 100,
+                        height: 35,
+                    },
                     is_password: false,
                     value: None,
                     children: vec![],
@@ -107,7 +127,12 @@ impl SyntheticUiaTree {
         }
     }
 
-    pub async fn query_element_at_point(&self, x: i32, y: i32, timeout: Duration) -> Result<Option<TargetMetadata>, String> {
+    pub async fn query_element_at_point(
+        &self,
+        x: i32,
+        y: i32,
+        timeout: Duration,
+    ) -> Result<Option<TargetMetadata>, String> {
         if self.simulate_hang {
             tokio::time::sleep(timeout + Duration::from_millis(50)).await;
             return Err("UIA COM call timed out".to_string());
@@ -115,7 +140,12 @@ impl SyntheticUiaTree {
 
         tokio::time::sleep(self.simulated_latency).await;
 
-        fn search_node(node: &SyntheticUiaElement, x: i32, y: i32, ancestors: &mut Vec<TargetMetadata>) -> Option<TargetMetadata> {
+        fn search_node(
+            node: &SyntheticUiaElement,
+            x: i32,
+            y: i32,
+            ancestors: &mut Vec<TargetMetadata>,
+        ) -> Option<TargetMetadata> {
             if !node.contains_point(x, y) {
                 return None;
             }
@@ -144,19 +174,27 @@ mod tests {
     #[tokio::test]
     async fn test_synthetic_uia_tree_hit_test() {
         let tree = SyntheticUiaTree::new_standard_form();
-        let target = tree.query_element_at_point(100, 110, Duration::from_millis(100)).await.unwrap();
+        let target = tree
+            .query_element_at_point(100, 110, Duration::from_millis(100))
+            .await
+            .unwrap();
         assert!(target.is_some());
         let meta = target.unwrap();
         assert_eq!(meta.automation_id, Some("txt_username".to_string()));
         assert_eq!(meta.ancestors.len(), 1);
-        assert_eq!(meta.ancestors[0].name, Some("Customer Entry Form".to_string()));
+        assert_eq!(
+            meta.ancestors[0].name,
+            Some("Customer Entry Form".to_string())
+        );
     }
 
     #[tokio::test]
     async fn test_synthetic_uia_hang_timeout_simulation() {
         let mut tree = SyntheticUiaTree::new_standard_form();
         tree.simulate_hang = true;
-        let res = tree.query_element_at_point(100, 110, Duration::from_millis(10)).await;
+        let res = tree
+            .query_element_at_point(100, 110, Duration::from_millis(10))
+            .await;
         assert!(res.is_err());
     }
 }

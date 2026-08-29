@@ -19,7 +19,11 @@ pub struct ButtonControl {
 }
 
 impl ButtonControl {
-    pub fn new(automation_id: impl Into<String>, name: impl Into<String>, kind: ButtonKind) -> Self {
+    pub fn new(
+        automation_id: impl Into<String>,
+        name: impl Into<String>,
+        kind: ButtonKind,
+    ) -> Self {
         Self {
             automation_id: automation_id.into(),
             name: name.into(),

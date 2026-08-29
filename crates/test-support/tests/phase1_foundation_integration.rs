@@ -2,8 +2,10 @@ use config::ConfigManager;
 use core_types::{
     ActionType, DualTimestamp, GlobalEventId, MouseButton, SCHEMA_IDENTIFIER, SCHEMA_VERSION,
 };
-use crypto::{compute_sha256_hex, verify_sha256_hex, MasterKey, XChaCha20Aead};
-use diagnostics::{HealthProbe, HealthStatus, MetricsCollector, ProbeResult, SystemHealthAggregator};
+use crypto::{MasterKey, XChaCha20Aead, compute_sha256_hex, verify_sha256_hex};
+use diagnostics::{
+    HealthProbe, HealthStatus, MetricsCollector, ProbeResult, SystemHealthAggregator,
+};
 use ipc::{IpcMessage, MsgPackCodec};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -53,7 +55,13 @@ async fn test_phase1_foundation_full_integration() {
         .expect("Server override success");
 
     assert_eq!(config_mgr.get().capture.video_fps, 15);
-    assert!(config_mgr.get().privacy.excluded_apps.contains(&"SecApp.exe".to_string()));
+    assert!(
+        config_mgr
+            .get()
+            .privacy
+            .excluded_apps
+            .contains(&"SecApp.exe".to_string())
+    );
 
     // 3. Test-Support Subsystem: Synthetic UIA & Mock Events
     let uia_tree = SyntheticUiaTree::new_standard_form();
@@ -66,7 +74,8 @@ async fn test_phase1_foundation_full_integration() {
     assert_eq!(target.automation_id, Some("txt_username".to_string()));
     assert!(!target.is_password);
 
-    let mut event_gen = MockEventGenerator::new(0x12345678, "session_20260829_090000_abcd", "TEST-MACH-01");
+    let mut event_gen =
+        MockEventGenerator::new(0x12345678, "session_20260829_090000_abcd", "TEST-MACH-01");
     let mut raw_events = Vec::new();
     for i in 0..100 {
         let raw_ev = event_gen.generate_mouse_click_raw(100 + i, 200 + i, MouseButton::Left);
@@ -75,7 +84,12 @@ async fn test_phase1_foundation_full_integration() {
     }
 
     assert_eq!(raw_events.len(), 100);
-    assert_eq!(metrics.events_captured_total.load(std::sync::atomic::Ordering::Relaxed), 100);
+    assert_eq!(
+        metrics
+            .events_captured_total
+            .load(std::sync::atomic::Ordering::Relaxed),
+        100
+    );
 
     let canonical_action = event_gen.generate_canonical_action(ActionType::Click, "SubmitButton");
     metrics.record_canonical_action();
@@ -90,8 +104,10 @@ async fn test_phase1_foundation_full_integration() {
     assert!(verify_sha256_hex(&hash_hex, &hash_hex));
 
     let aad = b"session_id=session_20260829_090000_abcd;chunk=0";
-    let encrypted_chunk = XChaCha20Aead::encrypt(&master_key, &raw_events_json, aad).expect("Encryption");
-    let decrypted_chunk = XChaCha20Aead::decrypt(&master_key, &encrypted_chunk, aad).expect("Decryption");
+    let encrypted_chunk =
+        XChaCha20Aead::encrypt(&master_key, &raw_events_json, aad).expect("Encryption");
+    let decrypted_chunk =
+        XChaCha20Aead::decrypt(&master_key, &encrypted_chunk, aad).expect("Decryption");
     assert_eq!(decrypted_chunk, raw_events_json);
 
     // 5. IPC Subsystem: MsgPack Codec Framing & Duplex Streams
@@ -112,7 +128,8 @@ async fn test_phase1_foundation_full_integration() {
 
     // 6. Test-Support Mock Spool Fixture
     let spool_fixture = MockSpoolFixture::create();
-    let session_dir = spool_fixture.populate_mock_recording_session("session_20260829_090000_abcd", 50, false);
+    let session_dir =
+        spool_fixture.populate_mock_recording_session("session_20260829_090000_abcd", 50, false);
     assert!(session_dir.exists());
     assert!(session_dir.join("events.raw.ndjson").exists());
     assert!(session_dir.join("manifest.json").exists());

@@ -8,15 +8,17 @@ use tracing::{error, info};
 
 pub const SERVICE_NAME: &str = "TrajectorySupervisor";
 pub const SERVICE_DISPLAY_NAME: &str = "Trajectory Recorder Supervisor";
-pub const SERVICE_DESCRIPTION: &str =
-    "Session 0 Supervisor for Trajectory Recorder, managing crash recovery, spool watchdog, and IPC heartbeats.";
+pub const SERVICE_DESCRIPTION: &str = "Session 0 Supervisor for Trajectory Recorder, managing crash recovery, spool watchdog, and IPC heartbeats.";
 
 #[cfg(windows)]
 windows_service::define_windows_service!(ffi_service_main, supervisor_service_main);
 
 #[cfg(windows)]
 pub fn run_service() -> Result<(), Box<dyn std::error::Error>> {
-    info!("Registering Windows Service dispatcher for {}...", SERVICE_NAME);
+    info!(
+        "Registering Windows Service dispatcher for {}...",
+        SERVICE_NAME
+    );
     windows_service::service_dispatcher::start(SERVICE_NAME, ffi_service_main)?;
     Ok(())
 }
@@ -86,14 +88,18 @@ fn supervisor_service_main(_args: Vec<OsString>) {
     };
 
     let spool_root = PathBuf::from("spool");
-    info!("Windows Service loop starting with spool root {:?}", spool_root);
+    info!(
+        "Windows Service loop starting with spool root {:?}",
+        spool_root
+    );
 
-    let result = rt.block_on(async {
-        crate::run_supervisor_loop(spool_root, cancel_token).await
-    });
+    let result = rt.block_on(async { crate::run_supervisor_loop(spool_root, cancel_token).await });
 
     if let Err(e) = result {
-        error!("Supervisor loop encountered error in Windows Service: {}", e);
+        error!(
+            "Supervisor loop encountered error in Windows Service: {}",
+            e
+        );
     }
 
     // Report service stopped to SCM
@@ -124,7 +130,8 @@ pub fn install_service(exe_path: Option<PathBuf>) -> Result<(), Box<dyn std::err
         None => env::current_exe()?,
     };
 
-    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CREATE_SERVICE)?;
+    let manager =
+        ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CREATE_SERVICE)?;
     let service_info = ServiceInfo {
         name: OsString::from(SERVICE_NAME),
         display_name: OsString::from(SERVICE_DISPLAY_NAME),

@@ -1,10 +1,10 @@
-use crate::screenshot::{encode_webp, ScreenCaptureBackend};
 #[cfg(not(windows))]
 use crate::screenshot::CapturedFrame;
+use crate::screenshot::{ScreenCaptureBackend, encode_webp};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -108,8 +108,13 @@ impl VideoRecorder {
         }
 
         let dir = output_dir.as_ref().to_path_buf();
-        std::fs::create_dir_all(&dir)
-            .map_err(|e| format!("Failed to create video frame directory {}: {}", dir.display(), e))?;
+        std::fs::create_dir_all(&dir).map_err(|e| {
+            format!(
+                "Failed to create video frame directory {}: {}",
+                dir.display(),
+                e
+            )
+        })?;
 
         let is_running = Arc::clone(&self.is_running);
         is_running.store(true, Ordering::SeqCst);
@@ -173,7 +178,12 @@ impl VideoRecorder {
                             "bgra",
                             vec![128u8; total],
                             pts_ns,
-                            core_types::metadata::BoundingRect::new(0, 0, config.width as i32, config.height as i32),
+                            core_types::metadata::BoundingRect::new(
+                                0,
+                                0,
+                                config.width as i32,
+                                config.height as i32,
+                            ),
                         ))
                     }
                 };

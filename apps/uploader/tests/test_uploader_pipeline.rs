@@ -1,5 +1,5 @@
 use archive::{chunk_and_encrypt_archive, create_tar_zstd_archive};
-use server::{create_router, AppState};
+use server::{AppState, create_router};
 use spool::{SpoolDirectoryManager, SpoolState};
 use tempfile::tempdir;
 use tokio::net::TcpListener;
@@ -32,15 +32,23 @@ async fn test_uploader_end_to_end_pipeline() {
     tokio::fs::create_dir_all(&pending_dir).await.unwrap();
 
     // Create session content
-    tokio::fs::write(pending_dir.join("events.raw.ndjson"), "{\"event\":\"mouse_down\"}\n{\"event\":\"key_press\"}\n").await.unwrap();
-    tokio::fs::write(pending_dir.join("session.db"), b"SQLITE_DUMMY_DB_DATA").await.unwrap();
+    tokio::fs::write(
+        pending_dir.join("events.raw.ndjson"),
+        "{\"event\":\"mouse_down\"}\n{\"event\":\"key_press\"}\n",
+    )
+    .await
+    .unwrap();
+    tokio::fs::write(pending_dir.join("session.db"), b"SQLITE_DUMMY_DB_DATA")
+        .await
+        .unwrap();
 
     // 1. Packaging & Chunking
     let staging_dir = pending_dir.join("_packaging");
     let archive_file = staging_dir.join("session.tar.zst");
     let chunks_dir = staging_dir.join("chunks");
 
-    let (uncompressed, _compressed, file_list) = create_tar_zstd_archive(&pending_dir, &archive_file, 3).unwrap();
+    let (uncompressed, _compressed, file_list) =
+        create_tar_zstd_archive(&pending_dir, &archive_file, 3).unwrap();
     let chunk_size = 64 * 1024; // 64KB chunks
     let manifest = chunk_and_encrypt_archive(
         &archive_file,
@@ -50,12 +58,15 @@ async fn test_uploader_end_to_end_pipeline() {
         None,
         uncompressed,
         file_list,
-    ).unwrap();
+    )
+    .unwrap();
 
     assert!(manifest.chunk_count >= 1);
 
     // 2. Transition PendingUpload -> Uploading
-    let uploading_dir = spool_mgr.transition(sid, SpoolState::PendingUpload, SpoolState::Uploading).unwrap();
+    let uploading_dir = spool_mgr
+        .transition(sid, SpoolState::PendingUpload, SpoolState::Uploading)
+        .unwrap();
     assert!(uploading_dir.exists());
 
     // 3. Initiate session on server
@@ -75,7 +86,15 @@ async fn test_uploader_end_to_end_pipeline() {
     let chunks_upload_dir = uploading_dir.join("_packaging/chunks");
     for chunk_entry in &manifest.chunks {
         let chunk_path = chunks_upload_dir.join(&chunk_entry.file_name);
-        client.upload_chunk_with_retry(sid, chunk_entry.chunk_index, &chunk_path, &chunk_entry.sha256).await.unwrap();
+        client
+            .upload_chunk_with_retry(
+                sid,
+                chunk_entry.chunk_index,
+                &chunk_path,
+                &chunk_entry.sha256,
+            )
+            .await
+            .unwrap();
     }
 
     // 5. Complete session
@@ -84,7 +103,9 @@ async fn test_uploader_end_to_end_pipeline() {
     assert!(complete_resp.archive_sha256_verified);
 
     // 6. Transition Uploading -> Uploaded
-    let uploaded_dir = spool_mgr.transition(sid, SpoolState::Uploading, SpoolState::Uploaded).unwrap();
+    let uploaded_dir = spool_mgr
+        .transition(sid, SpoolState::Uploading, SpoolState::Uploaded)
+        .unwrap();
     assert!(uploaded_dir.exists());
 
     // Verify session state in server memory / object store

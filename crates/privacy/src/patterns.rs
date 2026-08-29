@@ -2,14 +2,12 @@ use regex::Regex;
 use std::sync::LazyLock;
 
 // SSN regex: 3 digits - 2 digits - 4 digits
-pub static SSN_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b\d{3}-\d{2}-\d{4}\b").expect("Valid SSN regex")
-});
+pub static SSN_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b\d{3}-\d{2}-\d{4}\b").expect("Valid SSN regex"));
 
 // Generic potential credit card regex (13 to 19 digits, optionally spaced or hyphenated)
-pub static CC_CANDIDATE_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b(?:\d[ -]*?){13,19}\b").expect("Valid CC regex")
-});
+pub static CC_CANDIDATE_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b(?:\d[ -]*?){13,19}\b").expect("Valid CC regex"));
 
 // API keys and common cloud tokens
 pub static API_KEY_REGEX: LazyLock<Regex> = LazyLock::new(|| {
@@ -18,9 +16,8 @@ pub static API_KEY_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 // URL password regex
-pub static URL_PASSWORD_REGEX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"https?://([^:]+):([^@]+)@").expect("Valid URL password regex")
-});
+pub static URL_PASSWORD_REGEX: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"https?://([^:]+):([^@]+)@").expect("Valid URL password regex"));
 
 // Email regex
 pub static EMAIL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
@@ -29,10 +26,7 @@ pub static EMAIL_REGEX: LazyLock<Regex> = LazyLock::new(|| {
 
 /// Luhn algorithm for validating Credit Card numbers.
 pub fn is_valid_luhn_credit_card(number_str: &str) -> bool {
-    let digits: Vec<u32> = number_str
-        .chars()
-        .filter_map(|c| c.to_digit(10))
-        .collect();
+    let digits: Vec<u32> = number_str.chars().filter_map(|c| c.to_digit(10)).collect();
 
     if digits.len() < 13 || digits.len() > 19 {
         return false;

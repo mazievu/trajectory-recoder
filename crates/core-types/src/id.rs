@@ -64,8 +64,10 @@ impl SessionId {
         }
         let date_part = parts[1];
         let hour_part = parts[2];
-        date_part.len() == 8 && date_part.chars().all(|c| c.is_ascii_digit())
-            && hour_part.len() == 6 && hour_part.chars().all(|c| c.is_ascii_digit())
+        date_part.len() == 8
+            && date_part.chars().all(|c| c.is_ascii_digit())
+            && hour_part.len() == 6
+            && hour_part.chars().all(|c| c.is_ascii_digit())
     }
 }
 

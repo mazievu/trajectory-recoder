@@ -1,6 +1,6 @@
-use crate::diff::{compute_visual_diff, VisualDiffResult};
+use crate::diff::{VisualDiffResult, compute_visual_diff};
 use core_types::metadata::{BoundingBox, BoundingRect};
-use image::{codecs::webp::WebPEncoder, ExtendedColorType, ImageEncoder};
+use image::{ExtendedColorType, ImageEncoder, codecs::webp::WebPEncoder};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
@@ -89,7 +89,11 @@ pub fn encode_webp(bgra_data: &[u8], width: u32, height: u32, _quality: u8) -> O
 /// Calculate perceptual/pixel difference ratio between two 32-bit BGRA/RGBA image buffers.
 pub fn pixel_diff_ratio(a: &[u8], b: &[u8]) -> f32 {
     if a.len() != b.len() || a.is_empty() {
-        return if a.is_empty() && b.is_empty() { 0.0 } else { 1.0 };
+        return if a.is_empty() && b.is_empty() {
+            0.0
+        } else {
+            1.0
+        };
     }
 
     let pixel_count = a.len() / 4;
@@ -121,9 +125,9 @@ pub mod native {
     use core_types::metadata::BoundingRect;
     use windows::Win32::Foundation::HWND;
     use windows::Win32::Graphics::Gdi::{
-        BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, DeleteDC, DeleteObject, GetDC,
-        GetDIBits, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
-        HBITMAP, HDC, SRCCOPY,
+        BI_RGB, BITMAPINFO, BITMAPINFOHEADER, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC,
+        DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, GetDIBits, HBITMAP, HDC, ReleaseDC, SRCCOPY,
+        SelectObject,
     };
 
     pub fn capture_screen_gdi(
@@ -261,10 +265,7 @@ impl ScreenshotPipeline {
         }
     }
 
-    pub fn with_backend(
-        quality: u8,
-        backend: Arc<dyn ScreenCaptureBackend + Send + Sync>,
-    ) -> Self {
+    pub fn with_backend(quality: u8, backend: Arc<dyn ScreenCaptureBackend + Send + Sync>) -> Self {
         Self {
             quality,
             default_delays_ms: vec![200, 500, 1000],
@@ -325,7 +326,8 @@ impl ScreenshotPipeline {
                 );
 
                 if diff.is_stabilized {
-                    let webp_data = encode_webp(&frame.data, frame.width, frame.height, self.quality)?;
+                    let webp_data =
+                        encode_webp(&frame.data, frame.width, frame.height, self.quality)?;
                     return Some(ScreenshotResult {
                         monitor_id: frame.monitor_id,
                         width: frame.width,
@@ -451,7 +453,9 @@ mod tests {
 
         let pipeline = ScreenshotPipeline::with_backend(80, backend);
 
-        let before = pipeline.capture_before(1).expect("capture_before succeeded");
+        let before = pipeline
+            .capture_before(1)
+            .expect("capture_before succeeded");
         assert_eq!(before.monitor_id, 1);
         assert_eq!(before.width, 32);
         assert!(before.webp_data.starts_with(b"RIFF"));

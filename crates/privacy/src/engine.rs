@@ -1,7 +1,7 @@
 use crate::entropy::is_high_entropy_secret;
 use crate::patterns::{
-    is_valid_luhn_credit_card, API_KEY_REGEX, CC_CANDIDATE_REGEX, EMAIL_REGEX, SSN_REGEX,
-    URL_PASSWORD_REGEX,
+    API_KEY_REGEX, CC_CANDIDATE_REGEX, EMAIL_REGEX, SSN_REGEX, URL_PASSWORD_REGEX,
+    is_valid_luhn_credit_card,
 };
 use core_types::action::{ActionParameters, CanonicalAction};
 use core_types::event::{RawEvent, RawEventPayload};
@@ -84,7 +84,9 @@ impl PrivacyEngine {
 
         // Tier 2: SSN
         if self.policy.mask_ssn && SSN_REGEX.is_match(&redacted) {
-            redacted = SSN_REGEX.replace_all(&redacted, "[SSN_REDACTED]").to_string();
+            redacted = SSN_REGEX
+                .replace_all(&redacted, "[SSN_REDACTED]")
+                .to_string();
             changed = true;
         }
 

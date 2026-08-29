@@ -20,8 +20,8 @@ pub use action::{
 pub use error::{ErrorSeverity, ErrorTaxonomy};
 pub use event::{
     EventSource, RawBrowserEvent, RawClipboardEvent, RawEvent, RawEventPayload, RawFileEvent,
-    RawKeyboardEvent, RawMouseEvent, RawScreenEvent, RawSessionEvent, RawSystemEvent,
-    RawUiaEvent, RawWindowEvent,
+    RawKeyboardEvent, RawMouseEvent, RawScreenEvent, RawSessionEvent, RawSystemEvent, RawUiaEvent,
+    RawWindowEvent,
 };
 pub use id::{GlobalEventId, MachineId, SessionEventId, SessionId, UserId};
 pub use metadata::{

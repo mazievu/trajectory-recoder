@@ -18,8 +18,12 @@ pub struct NdjsonValidationReport {
 pub struct NdjsonVerifier;
 
 impl NdjsonVerifier {
-    pub fn verify_raw_ndjson(path: &Path, forbidden_plaintext_tokens: &[&str]) -> Result<NdjsonValidationReport, String> {
-        let file = File::open(path).map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
+    pub fn verify_raw_ndjson(
+        path: &Path,
+        forbidden_plaintext_tokens: &[&str],
+    ) -> Result<NdjsonValidationReport, String> {
+        let file =
+            File::open(path).map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
         let reader = BufReader::new(file);
 
         let mut report = NdjsonValidationReport {
@@ -43,7 +47,9 @@ impl NdjsonVerifier {
                 Ok(l) => l,
                 Err(e) => {
                     report.corrupted_lines += 1;
-                    report.errors.push(format!("Line {}: Read I/O error: {}", line_num, e));
+                    report
+                        .errors
+                        .push(format!("Line {}: Read I/O error: {}", line_num, e));
                     continue;
                 }
             };
@@ -68,7 +74,9 @@ impl NdjsonVerifier {
                 Ok(v) => v,
                 Err(e) => {
                     report.corrupted_lines += 1;
-                    report.errors.push(format!("Line {}: Invalid JSON syntax: {}", line_num, e));
+                    report
+                        .errors
+                        .push(format!("Line {}: Invalid JSON syntax: {}", line_num, e));
                     continue;
                 }
             };

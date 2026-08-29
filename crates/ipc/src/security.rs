@@ -1,14 +1,14 @@
-use std::ptr;
 use crate::error::IpcError;
+use std::ptr;
 
 #[cfg(windows)]
 use windows::{
-    core::PCWSTR,
     Win32::Foundation::{HLOCAL, LocalFree},
     Win32::Security::{
         Authorization::{ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1},
         PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES,
     },
+    core::PCWSTR,
 };
 
 /// SDDL granting Generic All (GA) to SYSTEM (SY), Builtin Administrators (BA), and Interactive Users (IU).
@@ -41,7 +41,9 @@ impl PipeSecurityAttributes {
                     &mut p_sd,
                     None,
                 )
-                .map_err(|e| IpcError::SecurityDescriptorError(format!("SDDL convert failed: {e}")))?;
+                .map_err(|e| {
+                    IpcError::SecurityDescriptorError(format!("SDDL convert failed: {e}"))
+                })?;
             }
 
             let attributes = SECURITY_ATTRIBUTES {

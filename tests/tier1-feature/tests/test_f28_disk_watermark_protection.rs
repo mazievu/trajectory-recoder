@@ -1,4 +1,4 @@
-use spool::{evaluate_disk_level, DiskWatermarkConfig, DiskWatermarkLevel};
+use spool::{DiskWatermarkConfig, DiskWatermarkLevel, evaluate_disk_level};
 
 #[test]
 fn test_f28_four_tier_disk_watermark_evaluations() {

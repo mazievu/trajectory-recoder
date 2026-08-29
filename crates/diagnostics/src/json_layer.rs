@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 
 /// Standardized JSON log record schema conforming to spec §57.
@@ -55,16 +55,12 @@ fn get_bearer_regex() -> &'static Regex {
 }
 
 fn get_ssn_regex() -> &'static Regex {
-    SSN_REGEX.get_or_init(|| {
-        Regex::new(r#"\b\d{3}-\d{2}-\d{4}\b"#)
-            .expect("Valid SSN regex")
-    })
+    SSN_REGEX.get_or_init(|| Regex::new(r#"\b\d{3}-\d{2}-\d{4}\b"#).expect("Valid SSN regex"))
 }
 
 fn get_credit_card_regex() -> &'static Regex {
     CREDIT_CARD_REGEX.get_or_init(|| {
-        Regex::new(r#"\b(?:\d{4}[ -]?){3}\d{4}\b"#)
-            .expect("Valid Credit Card regex")
+        Regex::new(r#"\b(?:\d{4}[ -]?){3}\d{4}\b"#).expect("Valid Credit Card regex")
     })
 }
 
@@ -78,28 +74,22 @@ impl JsonPrivacyFormatter {
         }
 
         // 1. JSON colon key-values: e.g. "password": "secret" -> "password": "[REDACTED]"
-        let sanitized = get_json_kv_regex()
-            .replace_all(raw_msg, r#""$1": "[REDACTED]""#);
+        let sanitized = get_json_kv_regex().replace_all(raw_msg, r#""$1": "[REDACTED]""#);
 
         // 2. Key=Value & query string pairs: e.g. password=SuperSecret or ?api_key=123 -> $1=[REDACTED]
-        let sanitized = get_kv_pair_regex()
-            .replace_all(&sanitized, "$1=[REDACTED]");
+        let sanitized = get_kv_pair_regex().replace_all(&sanitized, "$1=[REDACTED]");
 
         // 3. Colon key-value pairs (unquoted/YAML): e.g. password: secret -> $1: [REDACTED]
-        let sanitized = get_colon_pair_regex()
-            .replace_all(&sanitized, "$1: [REDACTED]");
+        let sanitized = get_colon_pair_regex().replace_all(&sanitized, "$1: [REDACTED]");
 
         // 4. Bearer & Basic Authorization headers/tokens: e.g. Bearer eyJhbGci... -> Bearer [REDACTED]
-        let sanitized = get_bearer_regex()
-            .replace_all(&sanitized, "$1 [REDACTED]");
+        let sanitized = get_bearer_regex().replace_all(&sanitized, "$1 [REDACTED]");
 
         // 5. Social Security Numbers (SSN): e.g. 123-45-6789 -> [REDACTED_SSN]
-        let sanitized = get_ssn_regex()
-            .replace_all(&sanitized, "[REDACTED_SSN]");
+        let sanitized = get_ssn_regex().replace_all(&sanitized, "[REDACTED_SSN]");
 
         // 6. Credit Card numbers: e.g. 4532-1234-5678-9012 -> [REDACTED_CARD]
-        let sanitized = get_credit_card_regex()
-            .replace_all(&sanitized, "[REDACTED_CARD]");
+        let sanitized = get_credit_card_regex().replace_all(&sanitized, "[REDACTED_CARD]");
 
         sanitized.into_owned()
     }
@@ -173,17 +163,11 @@ mod tests {
 
         let msg2 = "Token used: bearer 1234567890abcdef1234 in header";
         let sanitized2 = JsonPrivacyFormatter::sanitize_message(msg2);
-        assert_eq!(
-            sanitized2,
-            "Token used: bearer [REDACTED] in header"
-        );
+        assert_eq!(sanitized2, "Token used: bearer [REDACTED] in header");
 
         let msg3 = "Basic auth: Authorization: Basic dXNlcjpwYXNz";
         let sanitized3 = JsonPrivacyFormatter::sanitize_message(msg3);
-        assert_eq!(
-            sanitized3,
-            "Basic auth: Authorization: Basic [REDACTED]"
-        );
+        assert_eq!(sanitized3, "Basic auth: Authorization: Basic [REDACTED]");
     }
 
     #[test]
@@ -197,10 +181,7 @@ mod tests {
 
         let msg2 = r#"Key dump: {"private_key": "-----BEGIN RSA PRIVATE KEY-----..."}"#;
         let sanitized2 = JsonPrivacyFormatter::sanitize_message(msg2);
-        assert_eq!(
-            sanitized2,
-            r#"Key dump: {"private_key": "[REDACTED]"}"#
-        );
+        assert_eq!(sanitized2, r#"Key dump: {"private_key": "[REDACTED]"}"#);
     }
 
     #[test]
@@ -214,10 +195,7 @@ mod tests {
 
         let msg2 = "SSN 000-12-3456 processed";
         let sanitized2 = JsonPrivacyFormatter::sanitize_message(msg2);
-        assert_eq!(
-            sanitized2,
-            "SSN [REDACTED_SSN] processed"
-        );
+        assert_eq!(sanitized2, "SSN [REDACTED_SSN] processed");
     }
 
     #[test]
@@ -231,17 +209,11 @@ mod tests {
 
         let msg2 = "Card with spaces: 4532 1234 5678 9012";
         let sanitized2 = JsonPrivacyFormatter::sanitize_message(msg2);
-        assert_eq!(
-            sanitized2,
-            "Card with spaces: [REDACTED_CARD]"
-        );
+        assert_eq!(sanitized2, "Card with spaces: [REDACTED_CARD]");
 
         let msg3 = "Card contiguous: 4532123456789012";
         let sanitized3 = JsonPrivacyFormatter::sanitize_message(msg3);
-        assert_eq!(
-            sanitized3,
-            "Card contiguous: [REDACTED_CARD]"
-        );
+        assert_eq!(sanitized3, "Card contiguous: [REDACTED_CARD]");
     }
 
     #[test]
@@ -299,6 +271,9 @@ mod tests {
         assert_eq!(record.message, "Failed password=[REDACTED] for user");
         assert_eq!(record.metadata["api_key"], "[REDACTED]");
         assert_eq!(record.metadata["nested"]["token"], "[REDACTED]");
-        assert_eq!(record.metadata["nested"]["details"], "SSN is [REDACTED_SSN]");
+        assert_eq!(
+            record.metadata["nested"]["details"],
+            "SSN is [REDACTED_SSN]"
+        );
     }
 }

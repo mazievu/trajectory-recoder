@@ -1,14 +1,14 @@
-use std::ptr;
 use crate::error::CryptoError;
+use std::ptr;
 
 #[cfg(windows)]
 use windows::{
-    core::PCWSTR,
     Win32::Foundation::{GetLastError, HLOCAL, LocalFree},
     Win32::Security::Cryptography::{
-        CryptProtectData, CryptUnprotectData, CRYPTPROTECT_LOCAL_MACHINE,
-        CRYPTPROTECT_UI_FORBIDDEN, CRYPT_INTEGER_BLOB,
+        CRYPT_INTEGER_BLOB, CRYPTPROTECT_LOCAL_MACHINE, CRYPTPROTECT_UI_FORBIDDEN,
+        CryptProtectData, CryptUnprotectData,
     },
+    core::PCWSTR,
 };
 
 pub struct Dpapi;
@@ -68,7 +68,11 @@ impl Dpapi {
                 CryptUnprotectData(
                     &mut in_blob,
                     None,
-                    if optional_entropy.is_some() { Some(p_entropy) } else { None },
+                    if optional_entropy.is_some() {
+                        Some(p_entropy)
+                    } else {
+                        None
+                    },
                     None,
                     None,
                     CRYPTPROTECT_UI_FORBIDDEN,
@@ -142,7 +146,11 @@ impl Dpapi {
             CryptProtectData(
                 &mut in_blob,
                 PCWSTR(ptr::null()),
-                if optional_entropy.is_some() { Some(p_entropy) } else { None },
+                if optional_entropy.is_some() {
+                    Some(p_entropy)
+                } else {
+                    None
+                },
                 None,
                 None,
                 flags,

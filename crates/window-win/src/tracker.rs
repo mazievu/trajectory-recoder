@@ -3,10 +3,10 @@ use crate::topology::MonitorTopology;
 use core_types::event::{EventSource, RawEvent, RawEventPayload, RawWindowEvent};
 use core_types::id::GlobalEventId;
 use core_types::timestamp::DualTimestamp;
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, bounded};
 use parking_lot::RwLock;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tracing::{info, warn};
@@ -49,7 +49,10 @@ impl WindowTracker {
             let (win_hook, is_mock) = match win_hook_res {
                 Ok(h) => (Some(h), false),
                 Err(err) => {
-                    warn!("Could not start SetWinEventHook (fallback to simulation/mock): {}", err);
+                    warn!(
+                        "Could not start SetWinEventHook (fallback to simulation/mock): {}",
+                        err
+                    );
                     (None, true)
                 }
             };
@@ -101,7 +104,8 @@ impl WindowTracker {
                                 let is_fg = event_type == "FOREGROUND";
                                 let bounds = crate::win_api::native::get_window_rect(msg.hwnd);
                                 let mon_id = topo.find_monitor_for_rect(&bounds);
-                                let state = crate::win_api::native::inspect_window(msg.hwnd, mon_id, is_fg);
+                                let state =
+                                    crate::win_api::native::inspect_window(msg.hwnd, mon_id, is_fg);
 
                                 if is_fg {
                                     *cur_fg.write() = Some(state.clone());

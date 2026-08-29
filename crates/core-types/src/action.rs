@@ -1,5 +1,7 @@
 use crate::id::{GlobalEventId, SessionId};
-use crate::metadata::{ContextMetadata, ModifierState, MouseButton, Point2D, ScrollDirection, TargetMetadata};
+use crate::metadata::{
+    ContextMetadata, ModifierState, MouseButton, Point2D, ScrollDirection, TargetMetadata,
+};
 use crate::state::{ActionEvidence, StateEvidence, StateSnapshot};
 use crate::timestamp::DualTimestamp;
 use crate::{SCHEMA_IDENTIFIER, SCHEMA_VERSION};

@@ -25,7 +25,9 @@ pub enum ConfigValidationError {
     #[error("Invalid entropy threshold: {0}, must be between 0.0 and 8.0")]
     InvalidEntropyThreshold(f64),
 
-    #[error("Invalid disk pressure watermark ordering: L1({l1}%) must be < L2({l2}%) < L3({l3}%) <= 100%")]
+    #[error(
+        "Invalid disk pressure watermark ordering: L1({l1}%) must be < L2({l2}%) < L3({l3}%) <= 100%"
+    )]
     InvalidDiskThresholds { l1: u8, l2: u8, l3: u8 },
 
     #[error("Invalid retry backoff: initial ({initial} ms) must be <= max ({max} ms)")]
@@ -53,7 +55,9 @@ impl Validate for RecorderConfig {
 
         // Validate Upload Chunk Size
         if !(64..=256).contains(&self.upload.chunk_size_mb) {
-            return Err(ConfigValidationError::InvalidChunkSize(self.upload.chunk_size_mb));
+            return Err(ConfigValidationError::InvalidChunkSize(
+                self.upload.chunk_size_mb,
+            ));
         }
 
         // Validate Capture Settings
@@ -70,7 +74,9 @@ impl Validate for RecorderConfig {
         }
 
         if self.capture.video_fps == 0 || self.capture.video_fps > 60 {
-            return Err(ConfigValidationError::InvalidVideoFps(self.capture.video_fps));
+            return Err(ConfigValidationError::InvalidVideoFps(
+                self.capture.video_fps,
+            ));
         }
 
         if !(100..=50000).contains(&self.capture.video_bitrate_kbps) {

@@ -3,10 +3,10 @@ use crate::filter::is_noise_file;
 use core_types::event::{EventSource, RawEvent, RawEventPayload, RawFileEvent};
 use core_types::id::GlobalEventId;
 use core_types::timestamp::DualTimestamp;
-use crossbeam_channel::{bounded, Receiver, Sender};
+use crossbeam_channel::{Receiver, Sender, bounded};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 use tracing::{info, warn};
@@ -46,7 +46,10 @@ impl FileWatcherManager {
             let mut is_mock = true;
 
             for dir in watch_dirs {
-                match crate::watcher::native_watcher::DirectoryWatcherThread::start(dir.clone(), raw_tx.clone()) {
+                match crate::watcher::native_watcher::DirectoryWatcherThread::start(
+                    dir.clone(),
+                    raw_tx.clone(),
+                ) {
                     Ok(w) => {
                         watchers.push(w);
                         is_mock = false;

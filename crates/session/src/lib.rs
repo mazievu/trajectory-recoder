@@ -13,7 +13,7 @@ pub use global_id::GlobalEventIdAllocator;
 pub use id::SessionIdGenerator;
 pub use manager::SessionManager;
 pub use ndjson::NdjsonWriter;
-pub use recovery::{repair_ndjson_tail, scan_and_recover_orphaned_sessions, RecoveryResult};
+pub use recovery::{RecoveryResult, repair_ndjson_tail, scan_and_recover_orphaned_sessions};
 pub use rotation::HourlyRotationTrigger;
 
 #[cfg(test)]

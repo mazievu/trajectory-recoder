@@ -3,7 +3,7 @@
 
 use base64::prelude::*;
 use core_types::action::CanonicalAction;
-use diagnostics::{init_diagnostics, DiagnosticsConfig};
+use diagnostics::{DiagnosticsConfig, init_diagnostics};
 use ipc::ReconnectingIpcClient;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
@@ -78,7 +78,10 @@ fn count_ndjson_lines<P: AsRef<Path>>(path: P) -> u64 {
 pub fn list_sessions<P: AsRef<Path>>(spool_root: P) -> Result<Vec<SessionListItem>, String> {
     let root = spool_root.as_ref();
     if !root.exists() {
-        return Err(format!("Spool root directory does not exist: {}", root.display()));
+        return Err(format!(
+            "Spool root directory does not exist: {}",
+            root.display()
+        ));
     }
 
     let status_dirs = [
@@ -114,24 +117,30 @@ pub fn list_sessions<P: AsRef<Path>>(spool_root: P) -> Result<Vec<SessionListIte
                 let total_bytes = calculate_dir_size(&path);
 
                 let manifest_path = path.join("manifest.json");
-                let (start_time_utc, end_time_utc, event_count, action_count) = if manifest_path.exists() {
+                let (start_time_utc, end_time_utc, event_count, action_count) = if manifest_path
+                    .exists()
+                {
                     match std::fs::read_to_string(&manifest_path) {
                         Ok(content) => match serde_json::from_str::<serde_json::Value>(&content) {
                             Ok(v) => {
-                                let start = v.get("start_time_utc")
+                                let start = v
+                                    .get("start_time_utc")
                                     .or_else(|| v.get("start_monotonic_ns"))
                                     .and_then(|x| x.as_str())
                                     .map(|s| s.to_string());
-                                let end = v.get("end_time_utc")
+                                let end = v
+                                    .get("end_time_utc")
                                     .or_else(|| v.get("end_monotonic_ns"))
                                     .and_then(|x| x.as_str())
                                     .map(|s| s.to_string());
-                                let events = v.get("total_events")
+                                let events = v
+                                    .get("total_events")
                                     .or_else(|| v.get("event_count"))
                                     .or_else(|| v.get("raw_event_count"))
                                     .and_then(|x| x.as_u64())
                                     .unwrap_or(0);
-                                let actions = v.get("total_actions")
+                                let actions = v
+                                    .get("total_actions")
                                     .or_else(|| v.get("action_count"))
                                     .or_else(|| v.get("canonical_action_count"))
                                     .and_then(|x| x.as_u64())
@@ -140,12 +149,20 @@ pub fn list_sessions<P: AsRef<Path>>(spool_root: P) -> Result<Vec<SessionListIte
                                 (start, end, events, actions)
                             }
                             Err(e) => {
-                                warn!("Failed to parse manifest at {}: {}", manifest_path.display(), e);
+                                warn!(
+                                    "Failed to parse manifest at {}: {}",
+                                    manifest_path.display(),
+                                    e
+                                );
                                 (None, None, 0, 0)
                             }
                         },
                         Err(e) => {
-                            warn!("Failed to read manifest at {}: {}", manifest_path.display(), e);
+                            warn!(
+                                "Failed to read manifest at {}: {}",
+                                manifest_path.display(),
+                                e
+                            );
                             (None, None, 0, 0)
                         }
                     }
@@ -179,7 +196,10 @@ pub fn list_sessions<P: AsRef<Path>>(spool_root: P) -> Result<Vec<SessionListIte
 pub fn get_session_events<P: AsRef<Path>>(session_dir: P) -> Result<Vec<CanonicalAction>, String> {
     let dir = session_dir.as_ref();
     if !dir.exists() {
-        return Err(format!("Session directory does not exist: {}", dir.display()));
+        return Err(format!(
+            "Session directory does not exist: {}",
+            dir.display()
+        ));
     }
 
     let normalized_file = dir.join("events.normalized.ndjson");
@@ -194,8 +214,13 @@ pub fn get_session_events<P: AsRef<Path>>(session_dir: P) -> Result<Vec<Canonica
         }
     };
 
-    let file = File::open(&target_file)
-        .map_err(|e| format!("Failed to open events file {}: {}", target_file.display(), e))?;
+    let file = File::open(&target_file).map_err(|e| {
+        format!(
+            "Failed to open events file {}: {}",
+            target_file.display(),
+            e
+        )
+    })?;
     let reader = BufReader::new(file);
 
     let mut actions = Vec::new();
@@ -210,7 +235,12 @@ pub fn get_session_events<P: AsRef<Path>>(session_dir: P) -> Result<Vec<Canonica
             Ok(action) => actions.push(action),
             Err(e) => {
                 // If it is not a direct CanonicalAction, check if it's wrapped or log
-                tracing::debug!("Line {} not a direct CanonicalAction ({}): {}", idx + 1, e, trimmed);
+                tracing::debug!(
+                    "Line {} not a direct CanonicalAction ({}): {}",
+                    idx + 1,
+                    e,
+                    trimmed
+                );
             }
         }
     }
@@ -222,7 +252,10 @@ pub fn get_session_events<P: AsRef<Path>>(session_dir: P) -> Result<Vec<Canonica
 pub fn get_screenshot<P: AsRef<Path>>(image_path: P) -> Result<String, String> {
     let path = image_path.as_ref();
     if !path.exists() {
-        return Err(format!("Screenshot file does not exist: {}", path.display()));
+        return Err(format!(
+            "Screenshot file does not exist: {}",
+            path.display()
+        ));
     }
 
     let bytes = std::fs::read(path)
@@ -281,12 +314,16 @@ pub mod tauri_commands {
         enabled
     }
 
-    pub async fn list_sessions_cmd(spool_root: Option<String>) -> Result<Vec<SessionListItem>, String> {
+    pub async fn list_sessions_cmd(
+        spool_root: Option<String>,
+    ) -> Result<Vec<SessionListItem>, String> {
         let root = spool_root.unwrap_or_else(|| "spool".to_string());
         list_sessions(&root)
     }
 
-    pub async fn get_session_events_cmd(session_dir: String) -> Result<Vec<CanonicalAction>, String> {
+    pub async fn get_session_events_cmd(
+        session_dir: String,
+    ) -> Result<Vec<CanonicalAction>, String> {
         get_session_events(&session_dir)
     }
 
@@ -324,7 +361,9 @@ mod tests {
     use super::*;
     use core_types::action::{ActionParameters, ActionType, CanonicalActionBuilder, ClickParams};
     use core_types::id::{GlobalEventId, SessionId};
-    use core_types::metadata::{ApplicationContext, ContextMetadata, TargetMetadata, WindowContext};
+    use core_types::metadata::{
+        ApplicationContext, ContextMetadata, TargetMetadata, WindowContext,
+    };
     use core_types::timestamp::DualTimestamp;
     use std::fs;
     use tempfile::tempdir;
@@ -355,13 +394,19 @@ mod tests {
         let sessions = list_sessions(spool_root).expect("list_sessions should succeed");
         assert_eq!(sessions.len(), 2);
 
-        let s2 = sessions.iter().find(|s| s.session_id == "SESSION_002").unwrap();
+        let s2 = sessions
+            .iter()
+            .find(|s| s.session_id == "SESSION_002")
+            .unwrap();
         assert_eq!(s2.status, "PENDING_UPLOAD");
         assert_eq!(s2.event_count, 1500);
         assert_eq!(s2.action_count, 120);
         assert_eq!(s2.start_time_utc.as_deref(), Some("2026-08-29T04:00:00Z"));
 
-        let s1 = sessions.iter().find(|s| s.session_id == "SESSION_001").unwrap();
+        let s1 = sessions
+            .iter()
+            .find(|s| s.session_id == "SESSION_001")
+            .unwrap();
         assert_eq!(s1.status, "RECORDING");
         assert_eq!(s1.event_count, 3);
     }
@@ -418,7 +463,8 @@ mod tests {
     fn test_get_screenshot_base64() {
         let temp = tempdir().expect("create tempdir");
         let image_file = temp.path().join("shot_001.webp");
-        let raw_bytes = b"RIFF\x18\x00\x00\x00WEBPVP8L\x0c\x00\x00\x00\x2f\x00\x00\x00\x00\x00\x00\x00";
+        let raw_bytes =
+            b"RIFF\x18\x00\x00\x00WEBPVP8L\x0c\x00\x00\x00\x2f\x00\x00\x00\x00\x00\x00\x00";
         fs::write(&image_file, raw_bytes).unwrap();
 
         let base64_str = get_screenshot(&image_file).expect("get_screenshot");
@@ -432,7 +478,14 @@ mod tests {
         let temp = tempdir().expect("create tempdir");
         let spool_root = temp.path();
 
-        let states = ["recording", "finalizing", "pending_upload", "uploading", "uploaded", "failed"];
+        let states = [
+            "recording",
+            "finalizing",
+            "pending_upload",
+            "uploading",
+            "uploaded",
+            "failed",
+        ];
         for state in &states {
             let sdir = spool_root.join(state).join(format!("SESS_{}", state));
             fs::create_dir_all(&sdir).unwrap();
@@ -447,7 +500,11 @@ mod tests {
         let list = list_sessions(spool_root).expect("list sessions across all states");
         assert_eq!(list.len(), 6);
         for state in &states {
-            assert!(list.iter().any(|s| s.session_id == format!("SESS_{}", state) && s.status == state.to_uppercase()));
+            assert!(
+                list.iter()
+                    .any(|s| s.session_id == format!("SESS_{}", state)
+                        && s.status == state.to_uppercase())
+            );
         }
     }
 
@@ -463,7 +520,8 @@ mod tests {
             DualTimestamp::now(),
             ActionType::Click,
             ActionParameters::Click(ClickParams::default()),
-        ).build();
+        )
+        .build();
         let valid_json = serde_json::to_string(&valid_act).unwrap();
 
         // Write a mix of valid JSON, blank lines, invalid JSON, and truncated records
@@ -496,12 +554,16 @@ mod tests {
         fs::create_dir_all(&rec).unwrap();
         fs::write(rec.join("events.raw.ndjson"), "{}\n{}\n").unwrap();
 
-        let status = tauri_commands::get_status(Some(spool_root.to_string_lossy().to_string())).await;
+        let status =
+            tauri_commands::get_status(Some(spool_root.to_string_lossy().to_string())).await;
         assert!(status.is_recording);
         assert_eq!(status.active_session_id, "SESS_LIVE");
         assert_eq!(status.total_events, 2);
 
-        let sessions = tauri_commands::list_sessions_cmd(Some(spool_root.to_string_lossy().to_string())).await.unwrap();
+        let sessions =
+            tauri_commands::list_sessions_cmd(Some(spool_root.to_string_lossy().to_string()))
+                .await
+                .unwrap();
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0].session_id, "SESS_LIVE");
 
@@ -510,4 +572,3 @@ mod tests {
         assert!(timeline.is_empty());
     }
 }
-

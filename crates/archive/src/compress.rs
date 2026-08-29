@@ -85,11 +85,16 @@ mod tests {
         let extract_dir = tempdir().unwrap();
 
         // Create sample session files
-        std::fs::write(src_dir.path().join("events.raw.ndjson"), "{\"event\":1}\n{\"event\":2}\n").unwrap();
+        std::fs::write(
+            src_dir.path().join("events.raw.ndjson"),
+            "{\"event\":1}\n{\"event\":2}\n",
+        )
+        .unwrap();
         std::fs::write(src_dir.path().join("session.db"), "SQLITE_HEADER_MOCK_DATA").unwrap();
 
         let archive_path = out_dir.path().join("session.tar.zst");
-        let (uncompressed, compressed, files) = create_tar_zstd_archive(src_dir.path(), &archive_path, 3).unwrap();
+        let (uncompressed, compressed, files) =
+            create_tar_zstd_archive(src_dir.path(), &archive_path, 3).unwrap();
 
         assert!(uncompressed > 0);
         assert!(compressed > 0);

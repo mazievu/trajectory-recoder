@@ -1,8 +1,8 @@
 //! Trajectory Resumable Chunk Uploader daemon.
 //! Packages finalized sessions into encrypted TAR.Zstd chunks and uploads to Ingestion Server.
 
-use archive::{chunk_and_encrypt_archive, create_tar_zstd_archive, SessionArchiveManifest};
-use diagnostics::{init_diagnostics, DiagnosticsConfig};
+use archive::{SessionArchiveManifest, chunk_and_encrypt_archive, create_tar_zstd_archive};
+use diagnostics::{DiagnosticsConfig, init_diagnostics};
 use spool::{SpoolDirectoryManager, SpoolState};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -19,21 +19,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap_or_else(|_| PathBuf::from("spool"));
     let spool_mgr = SpoolDirectoryManager::new(&spool_root)?;
 
-    let server_url = std::env::var("SERVER_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
+    let server_url =
+        std::env::var("SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".to_string());
     let mut client = UploadClient::new(&server_url);
 
     if let Ok(token) = std::env::var("DEVICE_TOKEN") {
         client.set_device_token(token);
     }
 
-    info!("Uploader loop active, target server: {}, monitoring pending_upload and uploading...", server_url);
+    info!(
+        "Uploader loop active, target server: {}, monitoring pending_upload and uploading...",
+        server_url
+    );
 
     loop {
         // 1. Move any finalizing/ sessions that are ready to pending_upload/
         if let Ok(finalizing_sessions) = spool_mgr.list_sessions(SpoolState::Finalizing) {
             for sid in finalizing_sessions {
-                let _ = spool_mgr.transition(&sid, SpoolState::Finalizing, SpoolState::PendingUpload);
+                let _ =
+                    spool_mgr.transition(&sid, SpoolState::Finalizing, SpoolState::PendingUpload);
             }
         }
 
@@ -61,24 +65,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             file_list,
                         ) {
                             Ok(manifest) => {
-                                match spool_mgr.transition(&sid, SpoolState::PendingUpload, SpoolState::Uploading) {
+                                match spool_mgr.transition(
+                                    &sid,
+                                    SpoolState::PendingUpload,
+                                    SpoolState::Uploading,
+                                ) {
                                     Ok(_) => {
-                                        info!("Session {} chunked into {} chunks and moved to uploading", sid, manifest.chunk_count);
+                                        info!(
+                                            "Session {} chunked into {} chunks and moved to uploading",
+                                            sid, manifest.chunk_count
+                                        );
                                     }
                                     Err(e) => {
-                                        error!("Failed to transition session {} to Uploading: {}", sid, e);
+                                        error!(
+                                            "Failed to transition session {} to Uploading: {}",
+                                            sid, e
+                                        );
                                     }
                                 }
                             }
                             Err(e) => {
                                 error!("Failed to chunk session {}: {}", sid, e);
-                                let _ = spool_mgr.transition(&sid, SpoolState::PendingUpload, SpoolState::Failed);
+                                let _ = spool_mgr.transition(
+                                    &sid,
+                                    SpoolState::PendingUpload,
+                                    SpoolState::Failed,
+                                );
                             }
                         }
                     }
                     Err(e) => {
                         error!("Failed to compress session {}: {}", sid, e);
-                        let _ = spool_mgr.transition(&sid, SpoolState::PendingUpload, SpoolState::Failed);
+                        let _ = spool_mgr.transition(
+                            &sid,
+                            SpoolState::PendingUpload,
+                            SpoolState::Failed,
+                        );
                     }
                 }
             }
@@ -108,7 +130,10 @@ async fn process_uploading_session(
     let manifest_path = chunks_dir.join("manifest.json");
 
     if !manifest_path.exists() {
-        warn!("Missing manifest.json for uploading session {}, moving to failed", session_id);
+        warn!(
+            "Missing manifest.json for uploading session {}, moving to failed",
+            session_id
+        );
         let _ = spool_mgr.transition(session_id, SpoolState::Uploading, SpoolState::Failed);
         return Ok(());
     }
@@ -129,10 +154,16 @@ async fn process_uploading_session(
 
     match client.initiate_session(&initiate_req).await {
         Ok(resp) => {
-            info!("Initiated upload session {} (status: {})", session_id, resp.status);
+            info!(
+                "Initiated upload session {} (status: {})",
+                session_id, resp.status
+            );
         }
         Err(e) => {
-            warn!("Failed to initiate session {} on server: {}. Will retry next cycle.", session_id, e);
+            warn!(
+                "Failed to initiate session {} on server: {}. Will retry next cycle.",
+                session_id, e
+            );
             return Ok(());
         }
     }
@@ -147,23 +178,46 @@ async fn process_uploading_session(
     let mut all_ok = true;
     for chunk_entry in &manifest.chunks {
         if !missing_chunks.contains(&chunk_entry.chunk_index) {
-            info!("Chunk {} already uploaded for session {}", chunk_entry.chunk_index, session_id);
+            info!(
+                "Chunk {} already uploaded for session {}",
+                chunk_entry.chunk_index, session_id
+            );
             continue;
         }
 
-        let chunk_path = find_chunk_path(&chunks_dir, chunk_entry.chunk_index, &chunk_entry.file_name);
+        let chunk_path =
+            find_chunk_path(&chunks_dir, chunk_entry.chunk_index, &chunk_entry.file_name);
         if !chunk_path.exists() {
-            error!("Chunk file not found: {:?} for session {}", chunk_path, session_id);
+            error!(
+                "Chunk file not found: {:?} for session {}",
+                chunk_path, session_id
+            );
             all_ok = false;
             break;
         }
 
-        match client.upload_chunk_with_retry(session_id, chunk_entry.chunk_index, &chunk_path, &chunk_entry.sha256).await {
+        match client
+            .upload_chunk_with_retry(
+                session_id,
+                chunk_entry.chunk_index,
+                &chunk_path,
+                &chunk_entry.sha256,
+            )
+            .await
+        {
             Ok(()) => {
-                info!("Chunk {}/{} successfully uploaded for session {}", chunk_entry.chunk_index + 1, manifest.chunk_count, session_id);
+                info!(
+                    "Chunk {}/{} successfully uploaded for session {}",
+                    chunk_entry.chunk_index + 1,
+                    manifest.chunk_count,
+                    session_id
+                );
             }
             Err(e) => {
-                error!("Failed to upload chunk {} for session {}: {}", chunk_entry.chunk_index, session_id, e);
+                error!(
+                    "Failed to upload chunk {} for session {}: {}",
+                    chunk_entry.chunk_index, session_id, e
+                );
                 all_ok = false;
                 break;
             }
@@ -174,12 +228,25 @@ async fn process_uploading_session(
     if all_ok {
         match client.complete_session(session_id).await {
             Ok(resp) => {
-                if resp.status.eq_ignore_ascii_case("SESSION_ACCEPTED") || resp.status.eq_ignore_ascii_case("accepted") {
-                    let _ = spool_mgr.transition(session_id, SpoolState::Uploading, SpoolState::Uploaded);
-                    info!("Session {} verified and accepted by server. Moved to uploaded.", session_id);
+                if resp.status.eq_ignore_ascii_case("SESSION_ACCEPTED")
+                    || resp.status.eq_ignore_ascii_case("accepted")
+                {
+                    let _ = spool_mgr.transition(
+                        session_id,
+                        SpoolState::Uploading,
+                        SpoolState::Uploaded,
+                    );
+                    info!(
+                        "Session {} verified and accepted by server. Moved to uploaded.",
+                        session_id
+                    );
                 } else {
-                    warn!("Server returned unexpected status '{}' for session {}, moving to failed", resp.status, session_id);
-                    let _ = spool_mgr.transition(session_id, SpoolState::Uploading, SpoolState::Failed);
+                    warn!(
+                        "Server returned unexpected status '{}' for session {}, moving to failed",
+                        resp.status, session_id
+                    );
+                    let _ =
+                        spool_mgr.transition(session_id, SpoolState::Uploading, SpoolState::Failed);
                 }
             }
             Err(e) => {
