@@ -72,6 +72,16 @@ impl DragDropStateMachine {
         }
     }
 
+    /// Whether a release for `button` can complete the current pointer gesture.
+    ///
+    /// Callers use this before `on_mouse_up` to distinguish an ordinary click
+    /// from an unmatched mouse-up event.
+    pub fn is_active_for(&self, button: MouseButton) -> bool {
+        self.active_drag
+            .as_ref()
+            .is_some_and(|state| state.button == button)
+    }
+
     /// On mouse up: returns `Some(CanonicalAction)` if it was a drag & drop, or `None` if standard click
     pub fn on_mouse_up(
         &mut self,

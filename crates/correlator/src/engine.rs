@@ -93,6 +93,45 @@ impl CorrelationEngine {
         (g, s)
     }
 
+    fn build_click_action(
+        &self,
+        event: &RawEvent,
+        button: MouseButton,
+        point: Point2D,
+        monitor_id: u32,
+        target: TargetMetadata,
+        is_double: bool,
+        ids: Option<(u64, u64)>,
+    ) -> CanonicalAction {
+        let (gid, sid) = ids.unwrap_or_else(|| self.next_ids());
+        let action_type = match (button, is_double) {
+            (MouseButton::Right, _) => ActionType::RightClick,
+            (MouseButton::Middle, _) => ActionType::MiddleClick,
+            (MouseButton::Left, true) => ActionType::DoubleClick,
+            _ => ActionType::Click,
+        };
+
+        let click_params = ClickParams {
+            button,
+            click_count: if is_double { 2 } else { 1 },
+            physical_coords: point,
+            normalized_coords: point,
+            monitor_id,
+        };
+
+        CanonicalActionBuilder::new(
+            GlobalEventId::new(gid),
+            self.session_id.clone(),
+            sid,
+            event.timestamp,
+            action_type,
+            ActionParameters::Click(click_params),
+        )
+        .target(target)
+        .context(self.current_context.clone())
+        .build()
+    }
+
     /// Process a raw event and optionally produce one or more CanonicalActions.
     pub fn process_event(
         &mut self,
@@ -125,50 +164,41 @@ impl CorrelationEngine {
                         );
                     }
                     "MOUSE_UP" => {
-                        let (gid, sid) = self.next_ids();
-                        if let Some(dd_action) = self.drag_drop_sm.on_mouse_up(
-                            event.timestamp,
-                            mouse_event.button,
-                            point,
-                            target.clone(),
-                            &self.session_id,
-                            gid,
-                            sid,
-                        ) {
-                            actions.push(dd_action);
+                        if self.drag_drop_sm.is_active_for(mouse_event.button) {
+                            let (gid, sid) = self.next_ids();
+                            match self.drag_drop_sm.on_mouse_up(
+                                event.timestamp,
+                                mouse_event.button,
+                                point,
+                                target.clone(),
+                                &self.session_id,
+                                gid,
+                                sid,
+                            ) {
+                                Some(dd_action) => actions.push(dd_action),
+                                None => actions.push(self.build_click_action(
+                                    event,
+                                    mouse_event.button,
+                                    point,
+                                    mouse_event.monitor_id,
+                                    target,
+                                    false,
+                                    Some((gid, sid)),
+                                )),
+                            }
                         }
                     }
                     "CLICK" | "DOUBLE_CLICK" => {
                         let is_double = mouse_event.event_type == "DOUBLE_CLICK";
-                        let (gid, sid) = self.next_ids();
-                        let action_type = match (mouse_event.button, is_double) {
-                            (MouseButton::Right, _) => ActionType::RightClick,
-                            (MouseButton::Middle, _) => ActionType::MiddleClick,
-                            (MouseButton::Left, true) => ActionType::DoubleClick,
-                            _ => ActionType::Click,
-                        };
-
-                        let click_params = ClickParams {
-                            button: mouse_event.button,
-                            click_count: if is_double { 2 } else { 1 },
-                            physical_coords: point,
-                            normalized_coords: point,
-                            monitor_id: mouse_event.monitor_id,
-                        };
-
-                        let action = CanonicalActionBuilder::new(
-                            GlobalEventId::new(gid),
-                            self.session_id.clone(),
-                            sid,
-                            event.timestamp,
-                            action_type,
-                            ActionParameters::Click(click_params),
-                        )
-                        .target(target)
-                        .context(self.current_context.clone())
-                        .build();
-
-                        actions.push(action);
+                        actions.push(self.build_click_action(
+                            event,
+                            mouse_event.button,
+                            point,
+                            mouse_event.monitor_id,
+                            target,
+                            is_double,
+                            None,
+                        ));
                     }
                     "MOUSE_WHEEL" => {
                         let (gid, sid) = self.next_ids();
