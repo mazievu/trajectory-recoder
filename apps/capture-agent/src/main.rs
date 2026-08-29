@@ -4,6 +4,8 @@
 
 use clipboard_win::ClipboardManager;
 use correlator::CorrelationEngine;
+use core_types::event::RawEventPayload;
+use core_types::metadata::TargetMetadata;
 use diagnostics::{init_diagnostics, DiagnosticsConfig};
 use event_bus::bus::{EventBus, EventBusConfig};
 use file_events_win::FileWatcherManager;
@@ -18,6 +20,47 @@ use std::time::Duration;
 use tracing::{error, info};
 use uia_win::inspector::UiaInspector;
 use window_win::tracker::WindowTracker;
+
+/// The only events that warrant an expensive UI Automation lookup.
+/// Mouse movement is intentionally excluded: it is transport noise, not a
+/// user action. Keyboard and foreground events use the focused element because
+/// they do not carry a screen coordinate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UiaLookupRequest {
+    Point(i32, i32),
+    Focused,
+}
+
+fn uia_lookup_request(payload: &RawEventPayload) -> Option<UiaLookupRequest> {
+    match payload {
+        RawEventPayload::Mouse(mouse)
+            if matches!(
+                mouse.event_type.as_str(),
+                "MOUSE_DOWN" | "MOUSE_UP" | "CLICK" | "DOUBLE_CLICK" | "MOUSE_WHEEL"
+            ) => Some(UiaLookupRequest::Point(
+            mouse.physical_x,
+            mouse.physical_y,
+        )),
+        RawEventPayload::Keyboard(keyboard) if keyboard.event_type == "KEY_DOWN" => {
+            Some(UiaLookupRequest::Focused)
+        }
+        RawEventPayload::Window(window) if window.event_type == "FOREGROUND" => {
+            Some(UiaLookupRequest::Focused)
+        }
+        _ => None,
+    }
+}
+
+async fn target_metadata_for_event(
+    inspector: &UiaInspector,
+    payload: &RawEventPayload,
+) -> Option<TargetMetadata> {
+    match uia_lookup_request(payload) {
+        Some(UiaLookupRequest::Point(x, y)) => inspector.inspect_point(x, y).await,
+        Some(UiaLookupRequest::Focused) => inspector.inspect_focused().await,
+        None => None,
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -135,12 +178,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // Write raw event to NDJSON log
                 let _ = session_mgr.write_raw_event(&raw_event);
 
-                // For input click events, query UIA target metadata asynchronously
-                let target_metadata = if let core_types::event::RawEventPayload::Mouse(ref m) = raw_event.payload {
-                    uia_inspector.inspect_point(m.physical_x, m.physical_y).await
-                } else {
-                    None
-                };
+                // Query UIA only for semantic events, never for raw mouse movement.
+                let target_metadata =
+                    target_metadata_for_event(&uia_inspector, &raw_event.payload).await;
 
                 // Correlate into CanonicalAction
                 let actions = correlation_engine.process_event(&raw_event, target_metadata);
