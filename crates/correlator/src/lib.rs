@@ -70,6 +70,72 @@ mod tests {
     }
 
     #[test]
+    fn mouse_down_then_up_emits_click_with_release_target() {
+        let global_seq = Arc::new(AtomicU64::new(100));
+        let mut engine = CorrelationEngine::new("sess_test", "user1", "mach1", global_seq);
+        let timestamp = DualTimestamp::now();
+
+        let down = RawEvent::new(
+            1,
+            GlobalEventId::new(100),
+            timestamp,
+            "mach1".to_string(),
+            1,
+            "user1".to_string(),
+            EventSource::Win32Hook,
+            1,
+            RawEventPayload::Mouse(RawMouseEvent {
+                event_type: "MOUSE_DOWN".to_string(),
+                button: MouseButton::Left,
+                physical_x: 200,
+                physical_y: 350,
+                normalized_x: 0.1,
+                normalized_y: 0.3,
+                delta_x: 0.0,
+                delta_y: 0.0,
+                monitor_id: 1,
+                coords: Point2D::new(200, 350, 0.1, 0.3),
+                state: "DOWN".to_string(),
+            }),
+        );
+        assert!(engine.process_event(&down, None).is_empty());
+
+        let up = RawEvent::new(
+            2,
+            GlobalEventId::new(101),
+            timestamp,
+            "mach1".to_string(),
+            1,
+            "user1".to_string(),
+            EventSource::Win32Hook,
+            2,
+            RawEventPayload::Mouse(RawMouseEvent {
+                event_type: "MOUSE_UP".to_string(),
+                button: MouseButton::Left,
+                physical_x: 201,
+                physical_y: 351,
+                normalized_x: 0.101,
+                normalized_y: 0.301,
+                delta_x: 0.0,
+                delta_y: 0.0,
+                monitor_id: 1,
+                coords: Point2D::new(201, 351, 0.101, 0.301),
+                state: "UP".to_string(),
+            }),
+        );
+        let target = TargetMetadata {
+            name: Some("Save".to_string()),
+            control_type: Some("Button".to_string()),
+            ..Default::default()
+        };
+
+        let actions = engine.process_event(&up, Some(target));
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].action_type, ActionType::Click);
+        assert_eq!(actions[0].target.name.as_deref(), Some("Save"));
+    }
+
+    #[test]
     fn test_drag_drop_state_machine() {
         let global_seq = Arc::new(AtomicU64::new(200));
         let mut engine = CorrelationEngine::new("sess_test", "user1", "mach1", global_seq);
