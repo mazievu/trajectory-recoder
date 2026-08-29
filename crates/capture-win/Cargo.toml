@@ -1,0 +1,28 @@
+[package]
+name = "capture-win"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Windows Graphics Capture, DDA WebP capture, and Media Foundation H.264 video pipeline"
+
+[dependencies]
+core-types = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+chrono = { workspace = true }
+image = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Direct3D11",
+    "Win32_Media_MediaFoundation",
+]

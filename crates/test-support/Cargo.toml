@@ -1,0 +1,28 @@
+[package]
+name = "test-support"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Mock event generators, synthetic UIA trees, fake input streams, and pipe fixtures"
+
+[dependencies]
+core-types = { workspace = true }
+ipc = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true, features = ["full", "test-util"] }
+tokio-util = { workspace = true, features = ["codec"] }
+rand = { workspace = true }
+rand_chacha = { workspace = true }
+proptest = { workspace = true }
+tempfile = { workspace = true }
+rmp-serde = { workspace = true }
+bytes = { workspace = true }
+
+
+[dev-dependencies]
+config = { workspace = true }
+crypto = { workspace = true }
+diagnostics = { workspace = true }

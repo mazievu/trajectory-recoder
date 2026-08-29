@@ -1,0 +1,33 @@
+[package]
+name = "ipc"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Windows Named Pipe duplex IPC with length-prefixed MessagePack framing and SDDL security"
+
+[dependencies]
+core-types = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+bytes = { workspace = true }
+serde = { workspace = true }
+rmp-serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+futures = { workspace = true }
+rand = { workspace = true }
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
+    "Win32_System_Pipes",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Memory",
+]
+
+[dev-dependencies]
+tempfile = { workspace = true }

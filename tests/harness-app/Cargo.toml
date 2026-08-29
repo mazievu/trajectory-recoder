@@ -1,0 +1,33 @@
+[package]
+name = "harness-app"
+version = "0.1.0"
+edition = "2024"
+authors = ["Trajectory Recorder QA Team"]
+description = "Standardized Windows UI test fixture application for automated interaction testing"
+
+[[bin]]
+name = "trajectory-harness"
+path = "src/main.rs"
+
+[lib]
+name = "harness_app"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.40", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1.10", features = ["v4", "serde"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.58", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Controls",
+    "Win32_UI_Accessibility",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Com",
+    "Win32_System_Threading",
+] }

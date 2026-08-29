@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "Trajectory Recorder Browser Companion",
+  "version": "1.0.0",
+  "description": "Multimodal DOM interaction capture and SPA event telemetry for Trajectory Recorder",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "tabs",
+    "nativeMessaging",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["selector.js", "content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

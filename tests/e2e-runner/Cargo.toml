@@ -1,0 +1,30 @@
+[package]
+name = "e2e-runner"
+version = "0.1.0"
+edition = "2024"
+authors = ["Trajectory Recorder QA Team"]
+description = "E2E Test Runner and Artifact Verification Engine for Trajectory Recorder"
+
+[lib]
+name = "e2e_runner"
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.40", features = ["full"] }
+axum = "0.7"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+tar = "0.4"
+zstd = "0.13"
+chacha20poly1305 = "0.10"
+sha2 = "0.10"
+rand = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+tempfile = "3.12"
+uuid = { version = "1.10", features = ["v4", "serde"] }
+harness-app = { path = "../harness-app" }
+
+[dev-dependencies]
+tokio-test = "0.4"

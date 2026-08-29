@@ -1,0 +1,30 @@
+/// Translate standard Win32 clipboard format IDs into friendly strings.
+pub fn format_id_to_name(format_id: u32) -> String {
+    match format_id {
+        1 => "CF_TEXT".into(),
+        2 => "CF_BITMAP".into(),
+        3 => "CF_METAFILEPICT".into(),
+        4 => "CF_SYLK".into(),
+        5 => "CF_DIF".into(),
+        6 => "CF_TIFF".into(),
+        7 => "CF_OEMTEXT".into(),
+        8 => "CF_DIB".into(),
+        9 => "CF_PALETTE".into(),
+        10 => "CF_PENDATA".into(),
+        11 => "CF_RIFF".into(),
+        12 => "CF_WAVE".into(),
+        13 => "CF_UNICODETEXT".into(),
+        14 => "CF_ENHMETAFILE".into(),
+        15 => "CF_HDROP".into(),
+        16 => "CF_LOCALE".into(),
+        17 => "CF_DIBV5".into(),
+        0x0080 => "CF_OWNERDISPLAY".into(),
+        0x0081 => "CF_DSPTEXT".into(),
+        0x0082 => "CF_DSPBITMAP".into(),
+        0x0083 => "CF_DSPMETAFILEPICT".into(),
+        0x008E => "CF_DSPENHMETAFILE".into(),
+        0x0200..=0x02FF => format!("CF_PRIVATEFIRST_0x{:04X}", format_id),
+        0x0300..=0x03FF => format!("CF_GDIOBJFIRST_0x{:04X}", format_id),
+        _ => format!("CUSTOM_FORMAT_0x{:04X}", format_id),
+    }
+}

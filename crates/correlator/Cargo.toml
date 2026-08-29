@@ -1,0 +1,13 @@
+[package]
+name = "correlator"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Canonical action builder, typing/scroll burst grouping, and confidence scoring"
+
+[dependencies]
+core-types = { workspace = true }
+config = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }

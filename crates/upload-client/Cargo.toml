@@ -1,0 +1,25 @@
+[package]
+name = "upload-client"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Resumable HTTP chunked uploader client with backoff and throttling"
+
+[dependencies]
+core-types = { workspace = true }
+config = { workspace = true }
+reqwest = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }

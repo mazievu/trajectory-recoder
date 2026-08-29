@@ -1,0 +1,22 @@
+[package]
+name = "archive"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Streaming TAR + Zstandard packaging and chunking"
+
+[dependencies]
+core-types = { workspace = true }
+crypto = { workspace = true }
+tar = { workspace = true }
+zstd = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+hex = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

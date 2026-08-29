@@ -1,0 +1,33 @@
+[package]
+name = "uploader"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Encrypted Chunk Uploader for Trajectory Recorder"
+
+[[bin]]
+name = "trajectory-uploader"
+path = "src/main.rs"
+
+[dependencies]
+core-types = { workspace = true }
+config = { workspace = true }
+crypto = { workspace = true }
+diagnostics = { workspace = true }
+upload-client = { workspace = true }
+spool = { workspace = true }
+archive = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+hex = { workspace = true }
+
+[dev-dependencies]
+server = { workspace = true }
+tempfile = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true }
+

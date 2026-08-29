@@ -1,0 +1,30 @@
+[package]
+name = "clipboard-win"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Clipboard format listener, metadata extractor, and hash digest generator"
+
+[dependencies]
+core-types = { workspace = true }
+crossbeam-channel = { workspace = true }
+parking_lot = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+    "Win32_System_ProcessStatus",
+]
+
+[dev-dependencies]
+tempfile = { workspace = true }

@@ -1,0 +1,28 @@
+[package]
+name = "crypto"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Windows DPAPI wrappers and XChaCha20-Poly1305 AEAD encryption primitives"
+
+[dependencies]
+chacha20poly1305 = { workspace = true }
+sha2 = { workspace = true }
+zeroize = { workspace = true }
+subtle = { workspace = true }
+rand = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+hex = { workspace = true }
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+    "Win32_Security_Cryptography",
+    "Win32_System_Memory",
+]
+
+[dev-dependencies]
+tempfile = { workspace = true }

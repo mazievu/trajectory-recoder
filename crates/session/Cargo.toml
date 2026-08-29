@@ -1,0 +1,22 @@
+[package]
+name = "session"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Session partition router, hourly rotation, SQLite WAL, and NDJSON persistence"
+
+[dependencies]
+core-types = { workspace = true }
+config = { workspace = true }
+rusqlite = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+parking_lot = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

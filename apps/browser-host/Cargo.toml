@@ -1,0 +1,22 @@
+[package]
+name = "browser-host"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Native Messaging Host bridge for Chrome/Edge extensions"
+
+[[bin]]
+name = "trajectory-browser-host"
+path = "src/main.rs"
+
+[dependencies]
+core-types = { workspace = true }
+ipc = { workspace = true }
+diagnostics = { workspace = true }
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+browser-events = { workspace = true }

@@ -1,0 +1,10 @@
+{
+  "name": "com.trajectory.recorder.browser_host",
+  "description": "Trajectory Recorder Native Messaging Host Bridge",
+  "path": "trajectory-browser-host.exe",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://*",
+    "edge-extension://*"
+  ]
+}

@@ -1,0 +1,40 @@
+[package]
+name = "server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Distributed Axum + PostgreSQL + S3 Ingestion Server"
+
+[lib]
+name = "server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "trajectory-server"
+path = "src/main.rs"
+
+[dependencies]
+core-types = { workspace = true }
+config = { workspace = true }
+crypto = { workspace = true }
+diagnostics = { workspace = true }
+axum = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+parking_lot = { workspace = true }
+tower = { workspace = true }
+tower-http = { workspace = true }
+hex = { workspace = true }
+uuid = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+object_store = { workspace = true }
+jsonwebtoken = { workspace = true }
+dotenvy = { workspace = true }
+chrono = { workspace = true }
+futures = { workspace = true }
+bytes = { workspace = true }

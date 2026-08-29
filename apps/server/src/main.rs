@@ -1,0 +1,838 @@
+//! Trajectory Ingestion Server (Axum + Tokio REST API).
+//! Handles machine registration, JWT auth, heartbeats, chunked session upload to S3/ObjectStore,
+//! PostgreSQL metadata tracking, full archive SHA-256 validation, and session acceptance.
+
+use axum::extract::{Path, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::Json;
+use axum::routing::{get, post, put};
+use axum::Router;
+use bytes::Bytes;
+use chrono::Utc;
+use diagnostics::{init_diagnostics, DiagnosticsConfig};
+use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::collections::{HashMap, HashSet};
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tracing::{error, info, warn};
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Claims {
+    pub sub: String, // machine_id
+    pub exp: usize,
+    pub iat: usize,
+    pub iss: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegisterRequest {
+    pub machine_id: String,
+    pub hostname: String,
+    pub os_version: String,
+    pub registration_token: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HeartbeatRequest {
+    pub machine_id: String,
+    pub disk_usage_pct: f64,
+    pub active_session_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InitiateRequest {
+    pub session_id: String,
+    #[serde(alias = "total_chunks")]
+    pub chunk_count: usize,
+    #[serde(alias = "total_bytes")]
+    pub total_size_bytes: u64,
+    pub archive_sha256: String,
+    #[serde(default)]
+    pub machine_id: Option<String>,
+    #[serde(default)]
+    pub schema_version: Option<String>,
+    #[serde(default)]
+    pub user_id: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredSessionMeta {
+    pub session_id: String,
+    pub machine_id: String,
+    pub user_id: String,
+    pub expected_chunks: usize,
+    pub total_size_bytes: u64,
+    pub archive_sha256: String,
+    pub received_chunks: HashSet<usize>,
+    pub chunk_storage_keys: HashMap<usize, String>,
+    pub is_completed: bool,
+    pub created_at: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct InMemoryServerState {
+    pub machines: HashMap<String, RegisterRequest>,
+    pub sessions: HashMap<String, StoredSessionMeta>,
+}
+
+#[derive(Clone)]
+pub struct AppState {
+    pub db: Option<sqlx::PgPool>,
+    pub object_store: Arc<dyn object_store::ObjectStore>,
+    pub jwt_secret: String,
+    pub s3_bucket: String,
+    pub mem_state: Arc<RwLock<InMemoryServerState>>,
+}
+
+impl AppState {
+    pub fn new_in_memory() -> Self {
+        Self {
+            db: None,
+            object_store: Arc::new(object_store::memory::InMemory::new()),
+            jwt_secret: "dev_test_jwt_secret_key_123456789".to_string(),
+            s3_bucket: "trajectory-archives".to_string(),
+            mem_state: Arc::new(RwLock::new(InMemoryServerState::default())),
+        }
+    }
+}
+
+pub fn create_jwt(machine_id: &str, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
+    let now = Utc::now().timestamp() as usize;
+    let exp = now + 3600 * 24 * 365; // 1 year
+    let claims = Claims {
+        sub: machine_id.to_string(),
+        exp,
+        iat: now,
+        iss: "trajectory-server".to_string(),
+    };
+    let secret_key = if secret.is_empty() {
+        "dev_default_jwt_secret_change_in_production"
+    } else {
+        secret
+    };
+    jsonwebtoken::encode(
+        &jsonwebtoken::Header::default(),
+        &claims,
+        &jsonwebtoken::EncodingKey::from_secret(secret_key.as_bytes()),
+    )
+}
+
+pub fn verify_jwt(token: &str, secret: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
+    let secret_key = if secret.is_empty() {
+        "dev_default_jwt_secret_change_in_production"
+    } else {
+        secret
+    };
+    let mut validation = jsonwebtoken::Validation::default();
+    validation.set_issuer(&["trajectory-server"]);
+    validation.validate_exp = true;
+    let token_data = jsonwebtoken::decode::<Claims>(
+        token,
+        &jsonwebtoken::DecodingKey::from_secret(secret_key.as_bytes()),
+        &validation,
+    )?;
+    Ok(token_data.claims)
+}
+
+fn extract_machine_id(headers: &HeaderMap, jwt_secret: &str) -> Option<String> {
+    if let Some(auth_header) = headers.get("Authorization").and_then(|h| h.to_str().ok()) {
+        if let Some(token) = auth_header.strip_prefix("Bearer ") {
+            if let Ok(claims) = verify_jwt(token.trim(), jwt_secret) {
+                return Some(claims.sub);
+            }
+        }
+    }
+    None
+}
+
+fn format_chunk_storage_key(machine_id: &str, session_id: &str, chunk_index: usize) -> String {
+    let now = Utc::now();
+    format!(
+        "trajectory/{}/{}/{}/{}/{}/{}/chunk_{:05}.bin",
+        machine_id,
+        now.format("%Y"),
+        now.format("%m"),
+        now.format("%d"),
+        now.format("%H"),
+        session_id,
+        chunk_index
+    )
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    dotenvy::dotenv().ok();
+    let _guard = init_diagnostics(&DiagnosticsConfig::default());
+
+    let bind_addr_str = std::env::var("BIND_ADDR")
+        .or_else(|_| std::env::var("SERVER_PORT").map(|p| format!("0.0.0.0:{}", p)))
+        .unwrap_or_else(|_| "0.0.0.0:8080".to_string());
+
+    let jwt_secret = std::env::var("JWT_SECRET").unwrap_or_default();
+    let s3_bucket = std::env::var("S3_BUCKET").unwrap_or_else(|_| "trajectory-archives".to_string());
+    let s3_endpoint = std::env::var("S3_ENDPOINT").unwrap_or_default();
+    let s3_region = std::env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".to_string());
+    let s3_access_key = std::env::var("S3_ACCESS_KEY").unwrap_or_default();
+    let s3_secret_key = std::env::var("S3_SECRET_KEY").unwrap_or_default();
+
+    let db_pool = if let Ok(db_url) = std::env::var("DATABASE_URL") {
+        if !db_url.trim().is_empty() {
+            info!("Connecting to PostgreSQL database at {}...", db_url);
+            match sqlx::postgres::PgPoolOptions::new()
+                .max_connections(20)
+                .connect(&db_url)
+                .await
+            {
+                Ok(pool) => {
+                    info!("Successfully connected to PostgreSQL.");
+                    Some(pool)
+                }
+                Err(e) => {
+                    warn!("Failed to connect to PostgreSQL ({}). Running with in-memory metadata fallback.", e);
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let object_store: Arc<dyn object_store::ObjectStore> = if !s3_endpoint.is_empty() || !s3_access_key.is_empty() {
+        info!("Initializing S3/MinIO ObjectStore for bucket '{}'...", s3_bucket);
+        let mut builder = object_store::aws::AmazonS3Builder::new()
+            .with_bucket_name(&s3_bucket)
+            .with_region(&s3_region);
+        if !s3_endpoint.is_empty() {
+            builder = builder.with_endpoint(&s3_endpoint).with_allow_http(true);
+        }
+        if !s3_access_key.is_empty() && !s3_secret_key.is_empty() {
+            builder = builder.with_access_key_id(&s3_access_key).with_secret_access_key(&s3_secret_key);
+        }
+        match builder.build() {
+            Ok(s3) => Arc::new(s3),
+            Err(e) => {
+                warn!("Failed to initialize S3 ObjectStore ({}). Using InMemory store.", e);
+                Arc::new(object_store::memory::InMemory::new())
+            }
+        }
+    } else {
+        Arc::new(object_store::memory::InMemory::new())
+    };
+
+    let state = AppState {
+        db: db_pool,
+        object_store,
+        jwt_secret,
+        s3_bucket,
+        mem_state: Arc::new(RwLock::new(InMemoryServerState::default())),
+    };
+
+    let app = create_router(state);
+
+    let addr: SocketAddr = bind_addr_str.parse()?;
+    info!("Ingestion API listening on {}", addr);
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+
+    Ok(())
+}
+
+pub fn create_router(state: AppState) -> Router {
+    Router::new()
+        .route("/api/v1/health", get(health_handler))
+        .route("/api/v1/machines/register", post(register_machine_handler))
+        .route("/api/v1/machines/heartbeat", post(heartbeat_handler))
+        .route("/api/v1/sessions", post(initiate_session_handler))
+        .route(
+            "/api/v1/sessions/:session_id/chunks/:chunk_index",
+            put(upload_chunk_handler),
+        )
+        .route(
+            "/api/v1/sessions/:session_id/upload-status",
+            get(session_status_handler),
+        )
+        .route(
+            "/api/v1/sessions/:session_id/complete",
+            post(complete_session_handler),
+        )
+        .with_state(state)
+}
+
+async fn health_handler() -> (StatusCode, Json<serde_json::Value>) {
+    (StatusCode::OK, Json(serde_json::json!({ "status": "healthy" })))
+}
+
+async fn register_machine_handler(
+    State(state): State<AppState>,
+    Json(payload): Json<RegisterRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    info!("Registering machine: {}", payload.machine_id);
+
+    // 1. Issue real JWT
+    let token = match create_jwt(&payload.machine_id, &state.jwt_secret) {
+        Ok(t) => t,
+        Err(e) => {
+            error!("JWT generation error: {}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+
+    // 2. Persist to PostgreSQL if available
+    if let Some(ref pool) = state.db {
+        let res = sqlx::query(
+            r#"
+            INSERT INTO machines (machine_id, hostname, os_version, registration_token, registered_at, last_heartbeat_at, status)
+            VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'ACTIVE')
+            ON CONFLICT (machine_id) DO UPDATE SET
+                hostname = EXCLUDED.hostname,
+                os_version = EXCLUDED.os_version,
+                registration_token = EXCLUDED.registration_token,
+                last_heartbeat_at = CURRENT_TIMESTAMP
+            "#,
+        )
+        .bind(&payload.machine_id)
+        .bind(&payload.hostname)
+        .bind(&payload.os_version)
+        .bind(&payload.registration_token)
+        .execute(pool)
+        .await;
+
+        if let Err(e) = res {
+            error!("Failed to register machine in PostgreSQL: {}", e);
+        }
+    }
+
+    // 3. Always maintain in-memory state
+    let mut mem = state.mem_state.write();
+    mem.machines.insert(payload.machine_id.clone(), payload.clone());
+
+    Ok(Json(serde_json::json!({
+        "status": "registered",
+        "device_jwt": token,
+        "token": token,
+        "machine_id": payload.machine_id,
+    })))
+}
+
+async fn heartbeat_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<HeartbeatRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    // Validate JWT or machine existence
+    let caller_machine = extract_machine_id(&headers, &state.jwt_secret);
+    if let Some(ref caller) = caller_machine {
+        if caller != &payload.machine_id {
+            warn!("Heartbeat machine_id mismatch: caller {} vs payload {}", caller, payload.machine_id);
+            return Err(StatusCode::FORBIDDEN);
+        }
+    } else if !state.mem_state.read().machines.contains_key(&payload.machine_id) && state.db.is_none() {
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    info!("Heartbeat from machine: {}, disk: {:.1}%", payload.machine_id, payload.disk_usage_pct);
+
+    if let Some(ref pool) = state.db {
+        let _ = sqlx::query(
+            r#"
+            INSERT INTO machine_heartbeats (machine_id, disk_usage_pct, active_session_id, received_at)
+            VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+            "#,
+        )
+        .bind(&payload.machine_id)
+        .bind(payload.disk_usage_pct as f32)
+        .bind(&payload.active_session_id)
+        .execute(pool)
+        .await;
+
+        let _ = sqlx::query(
+            r#"
+            UPDATE machines SET last_heartbeat_at = CURRENT_TIMESTAMP WHERE machine_id = $1
+            "#,
+        )
+        .bind(&payload.machine_id)
+        .execute(pool)
+        .await;
+    }
+
+    Ok(Json(serde_json::json!({ "status": "ok" })))
+}
+
+async fn initiate_session_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<InitiateRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let machine_id = payload
+        .machine_id
+        .clone()
+        .or_else(|| extract_machine_id(&headers, &state.jwt_secret))
+        .unwrap_or_else(|| "default_machine".to_string());
+    let user_id = payload.user_id.clone().unwrap_or_else(|| "default_user".to_string());
+
+    info!(
+        "Initiating upload for session {}: {} chunks, {} bytes, machine: {}",
+        payload.session_id, payload.chunk_count, payload.total_size_bytes, machine_id
+    );
+
+    if let Some(ref pool) = state.db {
+        let _ = sqlx::query(
+            r#"
+            INSERT INTO machines (machine_id, hostname, os_version, registration_token, registered_at, last_heartbeat_at, status)
+            VALUES ($1, 'unknown', 'unknown', 'auto_registered', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'ACTIVE')
+            ON CONFLICT (machine_id) DO NOTHING
+            "#,
+        )
+        .bind(&machine_id)
+        .execute(pool)
+        .await;
+
+        let res = sqlx::query(
+            r#"
+            INSERT INTO sessions (
+                session_id, machine_id, user_id, start_time_utc, status,
+                expected_chunks, received_chunks, total_size_bytes, archive_sha256,
+                verified_sha256, created_at
+            )
+            VALUES ($1, $2, $3, CURRENT_TIMESTAMP, 'INITIATED', $4, 0, $5, $6, FALSE, CURRENT_TIMESTAMP)
+            ON CONFLICT (session_id) DO UPDATE SET
+                expected_chunks = EXCLUDED.expected_chunks,
+                total_size_bytes = EXCLUDED.total_size_bytes,
+                archive_sha256 = EXCLUDED.archive_sha256
+            "#,
+        )
+        .bind(&payload.session_id)
+        .bind(&machine_id)
+        .bind(&user_id)
+        .bind(payload.chunk_count as i32)
+        .bind(payload.total_size_bytes as i64)
+        .bind(&payload.archive_sha256)
+        .execute(pool)
+        .await;
+
+        if let Err(e) = res {
+            error!("Failed to record session initiation in PostgreSQL: {}", e);
+        }
+    }
+
+    let mut mem = state.mem_state.write();
+    mem.sessions.insert(
+        payload.session_id.clone(),
+        StoredSessionMeta {
+            session_id: payload.session_id.clone(),
+            machine_id,
+            user_id,
+            expected_chunks: payload.chunk_count,
+            total_size_bytes: payload.total_size_bytes,
+            archive_sha256: payload.archive_sha256,
+            received_chunks: HashSet::new(),
+            chunk_storage_keys: HashMap::new(),
+            is_completed: false,
+            created_at: Utc::now(),
+        },
+    );
+
+    Ok(Json(serde_json::json!({
+        "session_id": payload.session_id,
+        "upload_id": uuid::Uuid::new_v4().to_string(),
+        "status": "initiated",
+        "expected_chunks": payload.chunk_count,
+    })))
+}
+
+async fn upload_chunk_handler(
+    State(state): State<AppState>,
+    Path((session_id, chunk_index)): Path<(String, usize)>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let claimed_sha256 = headers
+        .get("X-Chunk-SHA256")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default();
+
+    // Verify SHA-256 on-the-fly
+    let computed_digest = hex::encode(Sha256::digest(&body));
+    if !claimed_sha256.is_empty() && !claimed_sha256.eq_ignore_ascii_case(&computed_digest) {
+        warn!(
+            "Chunk {} SHA-256 mismatch for session {}: claimed={}, computed={}",
+            chunk_index, session_id, claimed_sha256, computed_digest
+        );
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    let machine_id = {
+        let mem = state.mem_state.read();
+        mem.sessions
+            .get(&session_id)
+            .map(|s| s.machine_id.clone())
+            .unwrap_or_else(|| "default_machine".to_string())
+    };
+
+    // Construct S3 Object Storage Key
+    let storage_key = format_chunk_storage_key(&machine_id, &session_id, chunk_index);
+    let object_path = object_store::path::Path::from(storage_key.as_str());
+
+    // Stream / write chunk payload to S3 Object Store
+    if let Err(e) = state.object_store.put(&object_path, body.clone().into()).await {
+        error!("Failed to store chunk {} in object store: {}", chunk_index, e);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    // Persist chunk metadata to PostgreSQL
+    if let Some(ref pool) = state.db {
+        let _ = sqlx::query(
+            r#"
+            INSERT INTO session_chunks (session_id, chunk_index, byte_size, sha256, storage_key, uploaded_at)
+            VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
+            ON CONFLICT (session_id, chunk_index) DO UPDATE SET
+                byte_size = EXCLUDED.byte_size,
+                sha256 = EXCLUDED.sha256,
+                storage_key = EXCLUDED.storage_key,
+                uploaded_at = CURRENT_TIMESTAMP
+            "#,
+        )
+        .bind(&session_id)
+        .bind(chunk_index as i32)
+        .bind(body.len() as i32)
+        .bind(&computed_digest)
+        .bind(&storage_key)
+        .execute(pool)
+        .await;
+
+        let _ = sqlx::query(
+            r#"
+            UPDATE sessions
+            SET received_chunks = (SELECT COUNT(*) FROM session_chunks WHERE session_id = $1),
+                status = 'UPLOADING'
+            WHERE session_id = $1
+            "#,
+        )
+        .bind(&session_id)
+        .execute(pool)
+        .await;
+    }
+
+    // Update in-memory metadata
+    let mut mem = state.mem_state.write();
+    let sess = mem.sessions.get_mut(&session_id).ok_or(StatusCode::NOT_FOUND)?;
+    sess.received_chunks.insert(chunk_index);
+    sess.chunk_storage_keys.insert(chunk_index, storage_key.clone());
+
+    info!(
+        "Stored chunk {}/{} for session {} at {}",
+        chunk_index + 1,
+        sess.expected_chunks,
+        session_id,
+        storage_key
+    );
+
+    Ok(Json(serde_json::json!({
+        "chunk_index": chunk_index,
+        "status": "stored",
+        "sha256": computed_digest,
+        "storage_key": storage_key,
+    })))
+}
+
+async fn session_status_handler(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let mem = state.mem_state.read();
+    let sess = mem.sessions.get(&session_id).ok_or(StatusCode::NOT_FOUND)?;
+
+    let mut uploaded: Vec<usize> = sess.received_chunks.iter().copied().collect();
+    uploaded.sort();
+
+    let mut missing = Vec::new();
+    for i in 0..sess.expected_chunks {
+        if !sess.received_chunks.contains(&i) {
+            missing.push(i);
+        }
+    }
+
+    Ok(Json(serde_json::json!({
+        "session_id": session_id,
+        "uploaded_chunks": uploaded,
+        "missing_chunks": missing,
+        "is_complete": missing.is_empty(),
+        "status": if sess.is_completed { "completed" } else { "uploading" },
+    })))
+}
+
+async fn complete_session_handler(
+    State(state): State<AppState>,
+    Path(session_id): Path<String>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    let (expected_chunks, archive_sha256, chunk_keys) = {
+        let mem = state.mem_state.read();
+        let sess = mem.sessions.get(&session_id).ok_or(StatusCode::NOT_FOUND)?;
+
+        if sess.received_chunks.len() < sess.expected_chunks {
+            warn!(
+                "Cannot complete session {}: only received {}/{} chunks",
+                session_id,
+                sess.received_chunks.len(),
+                sess.expected_chunks
+            );
+            return Err(StatusCode::BAD_REQUEST);
+        }
+
+        (
+            sess.expected_chunks,
+            sess.archive_sha256.clone(),
+            sess.chunk_storage_keys.clone(),
+        )
+    };
+
+    // Reassemble full archive by streaming/reading all chunks from S3 in order
+    let mut full_archive_hasher = Sha256::new();
+    for i in 0..expected_chunks {
+        let key = match chunk_keys.get(&i) {
+            Some(k) => k.clone(),
+            None => {
+                warn!("Missing chunk {} key during completion for session {}", i, session_id);
+                return Err(StatusCode::BAD_REQUEST);
+            }
+        };
+
+        let path = object_store::path::Path::from(key.as_str());
+        let chunk_bytes = match state.object_store.get(&path).await {
+            Ok(res) => match res.bytes().await {
+                Ok(b) => b,
+                Err(e) => {
+                    error!("Failed to fetch chunk bytes from object store: {}", e);
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                }
+            },
+            Err(e) => {
+                error!("Chunk object not found in store: {}: {}", key, e);
+                return Err(StatusCode::BAD_REQUEST);
+            }
+        };
+
+        full_archive_hasher.update(&chunk_bytes);
+    }
+
+    let computed_archive_sha256 = hex::encode(full_archive_hasher.finalize());
+    if !archive_sha256.is_empty() && !computed_archive_sha256.eq_ignore_ascii_case(&archive_sha256) {
+        warn!(
+            "Session {} archive SHA-256 mismatch: expected {}, computed {}",
+            session_id, archive_sha256, computed_archive_sha256
+        );
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    // Mark completed in PostgreSQL
+    if let Some(ref pool) = state.db {
+        let _ = sqlx::query(
+            r#"
+            UPDATE sessions
+            SET status = 'ACCEPTED',
+                verified_sha256 = TRUE,
+                completed_at = CURRENT_TIMESTAMP
+            WHERE session_id = $1
+            "#,
+        )
+        .bind(&session_id)
+        .execute(pool)
+        .await;
+    }
+
+    // Mark completed in memory
+    {
+        let mut mem = state.mem_state.write();
+        if let Some(sess) = mem.sessions.get_mut(&session_id) {
+            sess.is_completed = true;
+        }
+    }
+
+    info!("Session {} successfully verified and accepted!", session_id);
+
+    Ok(Json(serde_json::json!({
+        "status": "SESSION_ACCEPTED",
+        "session_id": session_id,
+        "archive_sha256_verified": true,
+    })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::Request;
+    use tower::ServiceExt;
+
+    #[tokio::test]
+    async fn test_ingestion_api_flow() {
+        let state = AppState::new_in_memory();
+        let app = create_router(state);
+
+        // 1. Health check
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 2. Register machine
+        let reg_req = RegisterRequest {
+            machine_id: "MACH01".to_string(),
+            hostname: "host01".to_string(),
+            os_version: "Windows 11".to_string(),
+            registration_token: "secret_tok".to_string(),
+        };
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/machines/register")
+                    .header("Content-Type", "application/json")
+                    .body(Body::from(serde_json::to_string(&reg_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let reg_resp: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        let jwt_token = reg_resp["device_jwt"].as_str().unwrap();
+        assert!(!jwt_token.is_empty());
+
+        // 3. Send Heartbeat with JWT
+        let hb_req = HeartbeatRequest {
+            machine_id: "MACH01".to_string(),
+            disk_usage_pct: 42.5,
+            active_session_id: None,
+        };
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/machines/heartbeat")
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", format!("Bearer {}", jwt_token))
+                    .body(Body::from(serde_json::to_string(&hb_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 4. Initiate session with 2 chunks
+        let chunk0_data = b"chunk0_sample_payload_data_";
+        let chunk1_data = b"chunk1_sample_payload_data_";
+        let mut full_archive = Vec::new();
+        full_archive.extend_from_slice(chunk0_data);
+        full_archive.extend_from_slice(chunk1_data);
+        let archive_sha256 = hex::encode(Sha256::digest(&full_archive));
+
+        let init_req = InitiateRequest {
+            session_id: "SESS_TEST_01".to_string(),
+            chunk_count: 2,
+            total_size_bytes: full_archive.len() as u64,
+            archive_sha256: archive_sha256.clone(),
+            machine_id: Some("MACH01".to_string()),
+            schema_version: Some("1.0".to_string()),
+            user_id: Some("USER01".to_string()),
+        };
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/sessions")
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", format!("Bearer {}", jwt_token))
+                    .body(Body::from(serde_json::to_string(&init_req).unwrap()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 5. Upload chunk 0
+        let chunk0_sha256 = hex::encode(Sha256::digest(chunk0_data));
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/v1/sessions/SESS_TEST_01/chunks/0")
+                    .header("X-Chunk-SHA256", &chunk0_sha256)
+                    .header("Authorization", format!("Bearer {}", jwt_token))
+                    .body(Body::from(chunk0_data.to_vec()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 6. Check upload status
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/sessions/SESS_TEST_01/upload-status")
+                    .header("Authorization", format!("Bearer {}", jwt_token))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 7. Upload chunk 1
+        let chunk1_sha256 = hex::encode(Sha256::digest(chunk1_data));
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("PUT")
+                    .uri("/api/v1/sessions/SESS_TEST_01/chunks/1")
+                    .header("X-Chunk-SHA256", &chunk1_sha256)
+                    .header("Authorization", format!("Bearer {}", jwt_token))
+                    .body(Body::from(chunk1_data.to_vec()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 8. Complete session
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/v1/sessions/SESS_TEST_01/complete")
+                    .header("Authorization", format!("Bearer {}", jwt_token))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body_bytes = axum::body::to_bytes(resp.into_body(), usize::MAX).await.unwrap();
+        let complete_resp: serde_json::Value = serde_json::from_slice(&body_bytes).unwrap();
+        assert_eq!(complete_resp["status"], "SESSION_ACCEPTED");
+        assert_eq!(complete_resp["archive_sha256_verified"], true);
+    }
+}
+

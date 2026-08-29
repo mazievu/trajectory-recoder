@@ -1,0 +1,23 @@
+[package]
+name = "uia-win"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "COM STA/MTA UIAutomation worker and element inspector"
+
+[dependencies]
+core-types = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+serde = { workspace = true }
+parking_lot = { workspace = true }
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+    "Win32_UI_Accessibility",
+    "Win32_System_Com",
+    "Win32_System_Threading",
+]

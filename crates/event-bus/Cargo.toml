@@ -1,0 +1,24 @@
+[package]
+name = "event-bus"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "High-throughput bounded MPMC bus with priority shedding"
+
+[dependencies]
+core-types = { workspace = true }
+crossbeam = { workspace = true }
+crossbeam-channel = { workspace = true }
+parking_lot = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+chrono = { workspace = true }
+
+[dev-dependencies]
+input-win = { workspace = true }
+window-win = { workspace = true }
+clipboard-win = { workspace = true }
+file-events-win = { workspace = true }
+tokio = { workspace = true }

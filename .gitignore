@@ -1,0 +1,10 @@
+﻿/target
+Cargo.lock.tmp
+**/*.rs.bk
+*.pdb
+.env
+.env.*
+!.env.example
+spool/
+logs/
+.agents/
