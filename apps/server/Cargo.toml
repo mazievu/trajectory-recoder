@@ -38,3 +38,5 @@ dotenvy = { workspace = true }
 chrono = { workspace = true }
 futures = { workspace = true }
 bytes = { workspace = true }
+anyhow = { workspace = true }
+subtle = { workspace = true }

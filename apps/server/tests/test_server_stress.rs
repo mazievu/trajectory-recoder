@@ -1,10 +1,9 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::Utc;
-use jsonwebtoken::{encode, EncodingKey, Header};
+use jsonwebtoken::{EncodingKey, Header, encode};
 use server::{
-    create_jwt, create_router, verify_jwt, AppState, Claims,
-    HeartbeatRequest, InitiateRequest,
+    AppState, Claims, HeartbeatRequest, InitiateRequest, create_jwt, create_router, verify_jwt,
 };
 use sha2::{Digest, Sha256};
 use tower::ServiceExt;
@@ -58,7 +57,10 @@ async fn test_jwt_adversarial_validation() {
     .unwrap();
 
     let err_issuer = verify_jwt(&bad_issuer_token, secret);
-    assert!(err_issuer.is_err(), "JWT with invalid issuer must be rejected");
+    assert!(
+        err_issuer.is_err(),
+        "JWT with invalid issuer must be rejected"
+    );
 }
 
 #[tokio::test]
@@ -84,7 +86,9 @@ async fn test_heartbeat_mismatched_machine_identity_forbidden() {
                 .uri("/api/v1/machines/heartbeat")
                 .header("Authorization", format!("Bearer {}", token_machine_a))
                 .header("Content-Type", "application/json")
-                .body(Body::from(serde_json::to_string(&heartbeat_payload).unwrap()))
+                .body(Body::from(
+                    serde_json::to_string(&heartbeat_payload).unwrap(),
+                ))
                 .unwrap(),
         )
         .await
@@ -100,6 +104,7 @@ async fn test_heartbeat_mismatched_machine_identity_forbidden() {
 #[tokio::test]
 async fn test_corrupted_chunk_hashes_rejected() {
     let state = AppState::new_in_memory();
+    let token = create_jwt("M01", &state.jwt_secret).unwrap();
     let app = create_router(state);
 
     let session_id = "SESS_CORRUPT_01";
@@ -107,7 +112,7 @@ async fn test_corrupted_chunk_hashes_rejected() {
         session_id: session_id.to_string(),
         chunk_count: 2,
         total_size_bytes: 200,
-        archive_sha256: "some_sha".to_string(),
+        archive_sha256: hex::encode(Sha256::digest(b"Legitimate chunk data here")),
         machine_id: Some("M01".to_string()),
         schema_version: Some("1.0".to_string()),
         user_id: Some("U01".to_string()),
@@ -120,6 +125,7 @@ async fn test_corrupted_chunk_hashes_rejected() {
                 .method("POST")
                 .uri("/api/v1/sessions")
                 .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {token}"))
                 .body(Body::from(serde_json::to_string(&init_req).unwrap()))
                 .unwrap(),
         )
@@ -139,6 +145,7 @@ async fn test_corrupted_chunk_hashes_rejected() {
                 .method("PUT")
                 .uri(format!("/api/v1/sessions/{}/chunks/0", session_id))
                 .header("X-Chunk-SHA256", corrupted_sha)
+                .header("Authorization", format!("Bearer {token}"))
                 .body(Body::from(chunk_data.to_vec()))
                 .unwrap(),
         )
@@ -162,6 +169,7 @@ async fn test_corrupted_chunk_hashes_rejected() {
                 .method("PUT")
                 .uri(format!("/api/v1/sessions/{}/chunks/0", session_id))
                 .header("X-Chunk-SHA256", &real_sha)
+                .header("Authorization", format!("Bearer {token}"))
                 .body(Body::from(bit_flipped))
                 .unwrap(),
         )
@@ -178,6 +186,7 @@ async fn test_corrupted_chunk_hashes_rejected() {
 #[tokio::test]
 async fn test_out_of_order_chunks_upload_and_complete_reassembly() {
     let state = AppState::new_in_memory();
+    let token = create_jwt("M_OUT_ORDER", &state.jwt_secret).unwrap();
     let app = create_router(state);
 
     let session_id = "SESS_OUT_OF_ORDER_01";
@@ -218,6 +227,7 @@ async fn test_out_of_order_chunks_upload_and_complete_reassembly() {
                 .method("POST")
                 .uri("/api/v1/sessions")
                 .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {token}"))
                 .body(Body::from(serde_json::to_string(&init_req).unwrap()))
                 .unwrap(),
         )
@@ -237,8 +247,12 @@ async fn test_out_of_order_chunks_upload_and_complete_reassembly() {
             .oneshot(
                 Request::builder()
                     .method("PUT")
-                    .uri(format!("/api/v1/sessions/{}/chunks/{}", session_id, chunk_idx))
+                    .uri(format!(
+                        "/api/v1/sessions/{}/chunks/{}",
+                        session_id, chunk_idx
+                    ))
                     .header("X-Chunk-SHA256", &chunk_sha)
+                    .header("Authorization", format!("Bearer {token}"))
                     .body(Body::from(chunk_data.clone()))
                     .unwrap(),
             )
@@ -253,6 +267,7 @@ async fn test_out_of_order_chunks_upload_and_complete_reassembly() {
                 Request::builder()
                     .method("GET")
                     .uri(format!("/api/v1/sessions/{}/upload-status", session_id))
+                    .header("Authorization", format!("Bearer {token}"))
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -278,6 +293,7 @@ async fn test_out_of_order_chunks_upload_and_complete_reassembly() {
                     Request::builder()
                         .method("POST")
                         .uri(format!("/api/v1/sessions/{}/complete", session_id))
+                        .header("Authorization", format!("Bearer {token}"))
                         .body(Body::empty())
                         .unwrap(),
                 )
@@ -302,6 +318,7 @@ async fn test_out_of_order_chunks_upload_and_complete_reassembly() {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/v1/sessions/{}/complete", session_id))
+                .header("Authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -321,6 +338,7 @@ async fn test_out_of_order_chunks_upload_and_complete_reassembly() {
 #[tokio::test]
 async fn test_archive_checksum_mismatch_unprocessable_entity() {
     let state = AppState::new_in_memory();
+    let token = create_jwt("M01", &state.jwt_secret).unwrap();
     let app = create_router(state);
 
     let session_id = "SESS_ARCHIVE_MISMATCH_99";
@@ -334,7 +352,8 @@ async fn test_archive_checksum_mismatch_unprocessable_entity() {
         session_id: session_id.to_string(),
         chunk_count: 2,
         total_size_bytes: (chunk_0.len() + chunk_1.len()) as u64,
-        archive_sha256: "0000000000000000000000000000000000000000000000000000000000000000".to_string(),
+        archive_sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+            .to_string(),
         machine_id: Some("M01".to_string()),
         schema_version: Some("1.0".to_string()),
         user_id: Some("U01".to_string()),
@@ -347,6 +366,7 @@ async fn test_archive_checksum_mismatch_unprocessable_entity() {
                 .method("POST")
                 .uri("/api/v1/sessions")
                 .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {token}"))
                 .body(Body::from(serde_json::to_string(&init_req).unwrap()))
                 .unwrap(),
         )
@@ -361,6 +381,7 @@ async fn test_archive_checksum_mismatch_unprocessable_entity() {
                 .method("PUT")
                 .uri(format!("/api/v1/sessions/{}/chunks/0", session_id))
                 .header("X-Chunk-SHA256", &chunk_0_sha)
+                .header("Authorization", format!("Bearer {token}"))
                 .body(Body::from(chunk_0))
                 .unwrap(),
         )
@@ -374,6 +395,7 @@ async fn test_archive_checksum_mismatch_unprocessable_entity() {
                 .method("PUT")
                 .uri(format!("/api/v1/sessions/{}/chunks/1", session_id))
                 .header("X-Chunk-SHA256", &chunk_1_sha)
+                .header("Authorization", format!("Bearer {token}"))
                 .body(Body::from(chunk_1))
                 .unwrap(),
         )
@@ -387,6 +409,7 @@ async fn test_archive_checksum_mismatch_unprocessable_entity() {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/v1/sessions/{}/complete", session_id))
+                .header("Authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -403,6 +426,7 @@ async fn test_archive_checksum_mismatch_unprocessable_entity() {
 #[tokio::test]
 async fn test_nonexistent_session_operations_return_404() {
     let state = AppState::new_in_memory();
+    let token = create_jwt("M01", &state.jwt_secret).unwrap();
     let app = create_router(state);
 
     // 1. Chunk upload to nonexistent session
@@ -412,6 +436,7 @@ async fn test_nonexistent_session_operations_return_404() {
             Request::builder()
                 .method("PUT")
                 .uri("/api/v1/sessions/NON_EXISTENT/chunks/0")
+                .header("Authorization", format!("Bearer {token}"))
                 .body(Body::from(b"data".to_vec()))
                 .unwrap(),
         )
@@ -426,6 +451,7 @@ async fn test_nonexistent_session_operations_return_404() {
             Request::builder()
                 .method("GET")
                 .uri("/api/v1/sessions/NON_EXISTENT/upload-status")
+                .header("Authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -440,6 +466,7 @@ async fn test_nonexistent_session_operations_return_404() {
             Request::builder()
                 .method("POST")
                 .uri("/api/v1/sessions/NON_EXISTENT/complete")
+                .header("Authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
         )
@@ -451,6 +478,7 @@ async fn test_nonexistent_session_operations_return_404() {
 #[tokio::test]
 async fn test_duplicate_chunk_upload_idempotency() {
     let state = AppState::new_in_memory();
+    let token = create_jwt("M01", &state.jwt_secret).unwrap();
     let app = create_router(state);
 
     let session_id = "SESS_IDEMPOTENT_01";
@@ -474,6 +502,7 @@ async fn test_duplicate_chunk_upload_idempotency() {
                 .method("POST")
                 .uri("/api/v1/sessions")
                 .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {token}"))
                 .body(Body::from(serde_json::to_string(&init_req).unwrap()))
                 .unwrap(),
         )
@@ -488,6 +517,7 @@ async fn test_duplicate_chunk_upload_idempotency() {
                 .method("PUT")
                 .uri(format!("/api/v1/sessions/{}/chunks/0", session_id))
                 .header("X-Chunk-SHA256", &chunk_sha)
+                .header("Authorization", format!("Bearer {token}"))
                 .body(Body::from(chunk_data.clone()))
                 .unwrap(),
         )
@@ -503,6 +533,7 @@ async fn test_duplicate_chunk_upload_idempotency() {
                 .method("PUT")
                 .uri(format!("/api/v1/sessions/{}/chunks/0", session_id))
                 .header("X-Chunk-SHA256", &chunk_sha)
+                .header("Authorization", format!("Bearer {token}"))
                 .body(Body::from(chunk_data))
                 .unwrap(),
         )
@@ -517,6 +548,7 @@ async fn test_duplicate_chunk_upload_idempotency() {
             Request::builder()
                 .method("POST")
                 .uri(format!("/api/v1/sessions/{}/complete", session_id))
+                .header("Authorization", format!("Bearer {token}"))
                 .body(Body::empty())
                 .unwrap(),
         )

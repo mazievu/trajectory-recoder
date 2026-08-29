@@ -1,10 +1,10 @@
-﻿//! Trajectory Ingestion Server library (Axum + PostgreSQL + S3).
+//! Trajectory Ingestion Server library (Axum + PostgreSQL + S3).
 
+use axum::Router;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Json;
 use axum::routing::{get, post, put};
-use axum::Router;
 use bytes::Bytes;
 use chrono::Utc;
 use parking_lot::RwLock;
@@ -12,7 +12,63 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use subtle::ConstantTimeEq;
 use tracing::{error, info, warn};
+
+#[derive(Debug, Clone)]
+pub struct ProductionConfig {
+    pub database_url: String,
+    pub jwt_secret: String,
+    pub enrollment_token: String,
+    pub s3_bucket: String,
+    pub s3_region: String,
+    pub s3_endpoint: String,
+    pub s3_access_key: String,
+    pub s3_secret_key: String,
+}
+
+impl ProductionConfig {
+    pub fn from_env() -> anyhow::Result<Self> {
+        let config = Self {
+            database_url: required_env("DATABASE_URL")?,
+            jwt_secret: required_env("JWT_SECRET")?,
+            enrollment_token: required_env("ENROLLMENT_TOKEN")?,
+            s3_bucket: required_env("S3_BUCKET")?,
+            s3_region: required_env("S3_REGION")?,
+            s3_endpoint: required_env("S3_ENDPOINT")?,
+            s3_access_key: required_env("S3_ACCESS_KEY")?,
+            s3_secret_key: required_env("S3_SECRET_KEY")?,
+        };
+        config.validate()?;
+        Ok(config)
+    }
+
+    pub fn validate(&self) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            self.jwt_secret.len() >= 32,
+            "JWT_SECRET must contain at least 32 bytes"
+        );
+        anyhow::ensure!(
+            self.enrollment_token.len() >= 16,
+            "ENROLLMENT_TOKEN must contain at least 16 bytes"
+        );
+        anyhow::ensure!(
+            self.s3_endpoint.starts_with("https://"),
+            "S3_ENDPOINT must use HTTPS in production"
+        );
+        Ok(())
+    }
+}
+
+fn required_env(name: &str) -> anyhow::Result<String> {
+    let value = std::env::var(name)
+        .map_err(|_| anyhow::anyhow!("required environment variable {name} is not set"))?;
+    anyhow::ensure!(
+        !value.trim().is_empty(),
+        "required environment variable {name} is empty"
+    );
+    Ok(value)
+}
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
@@ -79,22 +135,54 @@ pub struct AppState {
     pub object_store: Arc<dyn object_store::ObjectStore>,
     pub jwt_secret: String,
     pub s3_bucket: String,
+    pub enrollment_token: String,
     pub mem_state: Arc<RwLock<InMemoryServerState>>,
 }
 
 impl AppState {
+    pub async fn connect_production(config: ProductionConfig) -> anyhow::Result<Self> {
+        config.validate()?;
+        let db = sqlx::postgres::PgPoolOptions::new()
+            .max_connections(20)
+            .connect(&config.database_url)
+            .await
+            .map_err(|error| anyhow::anyhow!("failed to connect to PostgreSQL: {error}"))?;
+        let object_store = object_store::aws::AmazonS3Builder::new()
+            .with_bucket_name(&config.s3_bucket)
+            .with_region(&config.s3_region)
+            .with_endpoint(&config.s3_endpoint)
+            .with_access_key_id(&config.s3_access_key)
+            .with_secret_access_key(&config.s3_secret_key)
+            .build()
+            .map_err(|error| anyhow::anyhow!("failed to initialize S3 object store: {error}"))?;
+
+        Ok(Self {
+            db: Some(db),
+            object_store: Arc::new(object_store),
+            jwt_secret: config.jwt_secret,
+            s3_bucket: config.s3_bucket,
+            enrollment_token: config.enrollment_token,
+            mem_state: Arc::new(RwLock::new(InMemoryServerState::default())),
+        })
+    }
+
+    /// Test fixture only. Production startup always uses `connect_production`.
     pub fn new_in_memory() -> Self {
         Self {
             db: None,
             object_store: Arc::new(object_store::memory::InMemory::new()),
             jwt_secret: "dev_test_jwt_secret_key_123456789".to_string(),
             s3_bucket: "trajectory-archives".to_string(),
+            enrollment_token: "test_enrollment_token".to_string(),
             mem_state: Arc::new(RwLock::new(InMemoryServerState::default())),
         }
     }
 }
 
 pub fn create_jwt(machine_id: &str, secret: &str) -> Result<String, jsonwebtoken::errors::Error> {
+    if secret.trim().is_empty() || machine_id.trim().is_empty() {
+        return Err(jsonwebtoken::errors::ErrorKind::InvalidKeyFormat.into());
+    }
     let now = Utc::now().timestamp() as usize;
     let exp = now + 3600 * 24 * 365; // 1 year
     let claims = Claims {
@@ -103,30 +191,23 @@ pub fn create_jwt(machine_id: &str, secret: &str) -> Result<String, jsonwebtoken
         iat: now,
         iss: "trajectory-server".to_string(),
     };
-    let secret_key = if secret.is_empty() {
-        "dev_default_jwt_secret_change_in_production"
-    } else {
-        secret
-    };
     jsonwebtoken::encode(
         &jsonwebtoken::Header::default(),
         &claims,
-        &jsonwebtoken::EncodingKey::from_secret(secret_key.as_bytes()),
+        &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
     )
 }
 
 pub fn verify_jwt(token: &str, secret: &str) -> Result<Claims, jsonwebtoken::errors::Error> {
-    let secret_key = if secret.is_empty() {
-        "dev_default_jwt_secret_change_in_production"
-    } else {
-        secret
-    };
+    if secret.trim().is_empty() {
+        return Err(jsonwebtoken::errors::ErrorKind::InvalidKeyFormat.into());
+    }
     let mut validation = jsonwebtoken::Validation::default();
     validation.set_issuer(&["trajectory-server"]);
     validation.validate_exp = true;
     let token_data = jsonwebtoken::decode::<Claims>(
         token,
-        &jsonwebtoken::DecodingKey::from_secret(secret_key.as_bytes()),
+        &jsonwebtoken::DecodingKey::from_secret(secret.as_bytes()),
         &validation,
     )?;
     Ok(token_data.claims)
@@ -141,6 +222,45 @@ pub fn extract_machine_id(headers: &HeaderMap, jwt_secret: &str) -> Option<Strin
         }
     }
     None
+}
+
+fn require_machine_id(headers: &HeaderMap, jwt_secret: &str) -> Result<String, StatusCode> {
+    extract_machine_id(headers, jwt_secret).ok_or(StatusCode::UNAUTHORIZED)
+}
+
+async fn require_session_owner(
+    state: &AppState,
+    headers: &HeaderMap,
+    session_id: &str,
+) -> Result<String, StatusCode> {
+    let caller_machine = require_machine_id(headers, &state.jwt_secret)?;
+    let session_machine = if let Some(pool) = &state.db {
+        sqlx::query_scalar::<_, String>("SELECT machine_id FROM sessions WHERE session_id = $1")
+            .bind(session_id)
+            .fetch_optional(pool)
+            .await
+            .map_err(|error| {
+                error!(%error, session_id, "failed to resolve session owner from PostgreSQL");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?
+            .ok_or(StatusCode::NOT_FOUND)?
+    } else {
+        state
+            .mem_state
+            .read()
+            .sessions
+            .get(session_id)
+            .map(|session| session.machine_id.clone())
+            .ok_or(StatusCode::NOT_FOUND)?
+    };
+    if caller_machine != session_machine {
+        warn!(
+            session_id,
+            caller_machine, "machine attempted to access another machine's session"
+        );
+        return Err(StatusCode::FORBIDDEN);
+    }
+    Ok(caller_machine)
 }
 
 pub fn format_chunk_storage_key(machine_id: &str, session_id: &str, chunk_index: usize) -> String {
@@ -179,14 +299,35 @@ pub fn create_router(state: AppState) -> Router {
 }
 
 pub async fn health_handler() -> (StatusCode, Json<serde_json::Value>) {
-    (StatusCode::OK, Json(serde_json::json!({ "status": "healthy" })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "healthy" })),
+    )
 }
 
 pub async fn register_machine_handler(
     State(state): State<AppState>,
     Json(payload): Json<RegisterRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    if payload.machine_id.trim().is_empty()
+        || payload.registration_token.trim().is_empty()
+        || !bool::from(
+            payload
+                .registration_token
+                .as_bytes()
+                .ct_eq(state.enrollment_token.as_bytes()),
+        )
+    {
+        warn!(machine_id = %payload.machine_id, "machine registration rejected");
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
     info!("Registering machine: {}", payload.machine_id);
+
+    // The enrollment credential authenticates registration but must never be
+    // retained as plaintext in PostgreSQL or the process cache.
+    let registration_token_digest =
+        hex::encode(Sha256::digest(payload.registration_token.as_bytes()));
 
     let token = match create_jwt(&payload.machine_id, &state.jwt_secret) {
         Ok(t) => t,
@@ -211,17 +352,21 @@ pub async fn register_machine_handler(
         .bind(&payload.machine_id)
         .bind(&payload.hostname)
         .bind(&payload.os_version)
-        .bind(&payload.registration_token)
+        .bind(&registration_token_digest)
         .execute(pool)
         .await;
 
         if let Err(e) = res {
             error!("Failed to register machine in PostgreSQL: {}", e);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     }
 
+    let mut stored_payload = payload.clone();
+    stored_payload.registration_token = registration_token_digest;
     let mut mem = state.mem_state.write();
-    mem.machines.insert(payload.machine_id.clone(), payload.clone());
+    mem.machines
+        .insert(payload.machine_id.clone(), stored_payload);
 
     Ok(Json(serde_json::json!({
         "status": "registered",
@@ -236,20 +381,22 @@ pub async fn heartbeat_handler(
     headers: HeaderMap,
     Json(payload): Json<HeartbeatRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let caller_machine = extract_machine_id(&headers, &state.jwt_secret);
-    if let Some(ref caller) = caller_machine {
-        if caller != &payload.machine_id {
-            warn!("Heartbeat machine_id mismatch: caller {} vs payload {}", caller, payload.machine_id);
-            return Err(StatusCode::FORBIDDEN);
-        }
-    } else if !state.mem_state.read().machines.contains_key(&payload.machine_id) && state.db.is_none() {
-        return Err(StatusCode::UNAUTHORIZED);
+    let caller_machine = require_machine_id(&headers, &state.jwt_secret)?;
+    if caller_machine != payload.machine_id {
+        warn!(
+            "Heartbeat machine_id mismatch: caller {} vs payload {}",
+            caller_machine, payload.machine_id
+        );
+        return Err(StatusCode::FORBIDDEN);
     }
 
-    info!("Heartbeat from machine: {}, disk: {:.1}%", payload.machine_id, payload.disk_usage_pct);
+    info!(
+        "Heartbeat from machine: {}, disk: {:.1}%",
+        payload.machine_id, payload.disk_usage_pct
+    );
 
     if let Some(ref pool) = state.db {
-        let _ = sqlx::query(
+        sqlx::query(
             r#"
             INSERT INTO machine_heartbeats (machine_id, disk_usage_pct, active_session_id, received_at)
             VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
@@ -259,16 +406,24 @@ pub async fn heartbeat_handler(
         .bind(payload.disk_usage_pct as f32)
         .bind(&payload.active_session_id)
         .execute(pool)
-        .await;
+        .await
+        .map_err(|error| {
+            error!(%error, "failed to persist heartbeat");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-        let _ = sqlx::query(
+        sqlx::query(
             r#"
             UPDATE machines SET last_heartbeat_at = CURRENT_TIMESTAMP WHERE machine_id = $1
             "#,
         )
         .bind(&payload.machine_id)
         .execute(pool)
-        .await;
+        .await
+        .map_err(|error| {
+            error!(%error, "failed to update machine heartbeat timestamp");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     }
 
     Ok(Json(serde_json::json!({ "status": "ok" })))
@@ -279,12 +434,30 @@ pub async fn initiate_session_handler(
     headers: HeaderMap,
     Json(payload): Json<InitiateRequest>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let machine_id = payload
+    let machine_id = require_machine_id(&headers, &state.jwt_secret)?;
+    if payload
         .machine_id
+        .as_deref()
+        .is_some_and(|claimed| claimed != machine_id)
+    {
+        warn!(session_id = %payload.session_id, caller_machine = %machine_id, "session initiation machine_id mismatch");
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let user_id = payload
+        .user_id
         .clone()
-        .or_else(|| extract_machine_id(&headers, &state.jwt_secret))
-        .unwrap_or_else(|| "default_machine".to_string());
-    let user_id = payload.user_id.clone().unwrap_or_else(|| "default_user".to_string());
+        .filter(|id| !id.trim().is_empty())
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    if payload.session_id.trim().is_empty()
+        || payload.chunk_count == 0
+        || payload.archive_sha256.len() != 64
+        || !payload
+            .archive_sha256
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit())
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
 
     info!(
         "Initiating upload for session {}: {} chunks, {} bytes, machine: {}",
@@ -292,17 +465,6 @@ pub async fn initiate_session_handler(
     );
 
     if let Some(ref pool) = state.db {
-        let _ = sqlx::query(
-            r#"
-            INSERT INTO machines (machine_id, hostname, os_version, registration_token, registered_at, last_heartbeat_at, status)
-            VALUES ($1, 'unknown', 'unknown', 'auto_registered', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 'ACTIVE')
-            ON CONFLICT (machine_id) DO NOTHING
-            "#,
-        )
-        .bind(&machine_id)
-        .execute(pool)
-        .await;
-
         let res = sqlx::query(
             r#"
             INSERT INTO sessions (
@@ -315,6 +477,7 @@ pub async fn initiate_session_handler(
                 expected_chunks = EXCLUDED.expected_chunks,
                 total_size_bytes = EXCLUDED.total_size_bytes,
                 archive_sha256 = EXCLUDED.archive_sha256
+            WHERE sessions.machine_id = EXCLUDED.machine_id
             "#,
         )
         .bind(&payload.session_id)
@@ -326,8 +489,13 @@ pub async fn initiate_session_handler(
         .execute(pool)
         .await;
 
-        if let Err(e) = res {
-            error!("Failed to record session initiation in PostgreSQL: {}", e);
+        match res {
+            Ok(result) if result.rows_affected() == 0 => return Err(StatusCode::FORBIDDEN),
+            Ok(_) => {}
+            Err(e) => {
+                error!("Failed to record session initiation in PostgreSQL: {}", e);
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
         }
     }
 
@@ -362,6 +530,7 @@ pub async fn upload_chunk_handler(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    require_session_owner(&state, &headers, &session_id).await?;
     let claimed_sha256 = headers
         .get("X-Chunk-SHA256")
         .and_then(|v| v.to_str().ok())
@@ -376,24 +545,47 @@ pub async fn upload_chunk_handler(
         return Err(StatusCode::BAD_REQUEST);
     }
 
-    let machine_id = {
+    let (machine_id, expected_chunks) = if let Some(pool) = &state.db {
+        sqlx::query_as::<_, (String, i32)>(
+            "SELECT machine_id, expected_chunks FROM sessions WHERE session_id = $1",
+        )
+        .bind(&session_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|error| {
+            error!(%error, session_id, "failed to resolve session metadata from PostgreSQL");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .map(|(machine_id, expected_chunks)| (machine_id, expected_chunks as usize))
+        .ok_or(StatusCode::NOT_FOUND)?
+    } else {
         let mem = state.mem_state.read();
         mem.sessions
             .get(&session_id)
-            .map(|s| s.machine_id.clone())
-            .unwrap_or_else(|| "default_machine".to_string())
+            .map(|s| (s.machine_id.clone(), s.expected_chunks))
+            .ok_or(StatusCode::NOT_FOUND)?
     };
+    if chunk_index >= expected_chunks {
+        return Err(StatusCode::BAD_REQUEST);
+    }
 
     let storage_key = format_chunk_storage_key(&machine_id, &session_id, chunk_index);
     let object_path = object_store::path::Path::from(storage_key.as_str());
 
-    if let Err(e) = state.object_store.put(&object_path, body.clone().into()).await {
-        error!("Failed to store chunk {} in object store: {}", chunk_index, e);
+    if let Err(e) = state
+        .object_store
+        .put(&object_path, body.clone().into())
+        .await
+    {
+        error!(
+            "Failed to store chunk {} in object store: {}",
+            chunk_index, e
+        );
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
     if let Some(ref pool) = state.db {
-        let _ = sqlx::query(
+        sqlx::query(
             r#"
             INSERT INTO session_chunks (session_id, chunk_index, byte_size, sha256, storage_key, uploaded_at)
             VALUES ($1, $2, $3, $4, $5, CURRENT_TIMESTAMP)
@@ -410,9 +602,13 @@ pub async fn upload_chunk_handler(
         .bind(&computed_digest)
         .bind(&storage_key)
         .execute(pool)
-        .await;
+        .await
+        .map_err(|error| {
+            error!(%error, session_id, "failed to persist uploaded chunk metadata");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-        let _ = sqlx::query(
+        sqlx::query(
             r#"
             UPDATE sessions
             SET received_chunks = (SELECT COUNT(*) FROM session_chunks WHERE session_id = $1),
@@ -422,18 +618,26 @@ pub async fn upload_chunk_handler(
         )
         .bind(&session_id)
         .execute(pool)
-        .await;
+        .await
+        .map_err(|error| {
+            error!(%error, session_id, "failed to update upload progress");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     }
 
     let mut mem = state.mem_state.write();
-    let sess = mem.sessions.get_mut(&session_id).ok_or(StatusCode::NOT_FOUND)?;
-    sess.received_chunks.insert(chunk_index);
-    sess.chunk_storage_keys.insert(chunk_index, storage_key.clone());
+    if let Some(sess) = mem.sessions.get_mut(&session_id) {
+        sess.received_chunks.insert(chunk_index);
+        sess.chunk_storage_keys
+            .insert(chunk_index, storage_key.clone());
+    } else if state.db.is_none() {
+        return Err(StatusCode::NOT_FOUND);
+    }
 
     info!(
         "Stored chunk {}/{} for session {} at {}",
         chunk_index + 1,
-        sess.expected_chunks,
+        expected_chunks,
         session_id,
         storage_key
     );
@@ -449,7 +653,44 @@ pub async fn upload_chunk_handler(
 pub async fn session_status_handler(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    require_session_owner(&state, &headers, &session_id).await?;
+    if let Some(pool) = &state.db {
+        let (expected_chunks, status): (i32, String) =
+            sqlx::query_as("SELECT expected_chunks, status FROM sessions WHERE session_id = $1")
+                .bind(&session_id)
+                .fetch_optional(pool)
+                .await
+                .map_err(|error| {
+                    error!(%error, session_id, "failed to read upload status from PostgreSQL");
+                    StatusCode::INTERNAL_SERVER_ERROR
+                })?
+                .ok_or(StatusCode::NOT_FOUND)?;
+        let uploaded: Vec<i32> = sqlx::query_scalar(
+            "SELECT chunk_index FROM session_chunks WHERE session_id = $1 ORDER BY chunk_index",
+        )
+        .bind(&session_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|error| {
+            error!(%error, session_id, "failed to read uploaded chunks from PostgreSQL");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+        let uploaded: Vec<usize> = uploaded.into_iter().map(|index| index as usize).collect();
+        let received: HashSet<usize> = uploaded.iter().copied().collect();
+        let missing: Vec<usize> = (0..expected_chunks as usize)
+            .filter(|index| !received.contains(index))
+            .collect();
+
+        return Ok(Json(serde_json::json!({
+            "session_id": session_id,
+            "uploaded_chunks": uploaded,
+            "missing_chunks": missing,
+            "is_complete": missing.is_empty(),
+            "status": status.to_lowercase(),
+        })));
+    }
     let mem = state.mem_state.read();
     let sess = mem.sessions.get(&session_id).ok_or(StatusCode::NOT_FOUND)?;
 
@@ -475,8 +716,49 @@ pub async fn session_status_handler(
 pub async fn complete_session_handler(
     State(state): State<AppState>,
     Path(session_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    let (expected_chunks, archive_sha256, chunk_keys) = {
+    require_session_owner(&state, &headers, &session_id).await?;
+    let (expected_chunks, archive_sha256, chunk_keys) = if let Some(pool) = &state.db {
+        let (expected_chunks, archive_sha256): (i32, String) = sqlx::query_as(
+            "SELECT expected_chunks, archive_sha256 FROM sessions WHERE session_id = $1",
+        )
+        .bind(&session_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|error| {
+            error!(%error, session_id, "failed to read completion metadata from PostgreSQL");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .ok_or(StatusCode::NOT_FOUND)?;
+        let chunks: Vec<(i32, String)> = sqlx::query_as(
+            "SELECT chunk_index, storage_key FROM session_chunks WHERE session_id = $1",
+        )
+        .bind(&session_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|error| {
+            error!(%error, session_id, "failed to read completion chunks from PostgreSQL");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+        if chunks.len() < expected_chunks as usize {
+            warn!(
+                session_id,
+                received = chunks.len(),
+                expected_chunks,
+                "cannot complete session with missing chunks"
+            );
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        (
+            expected_chunks as usize,
+            archive_sha256,
+            chunks
+                .into_iter()
+                .map(|(index, key)| (index as usize, key))
+                .collect(),
+        )
+    } else {
         let mem = state.mem_state.read();
         let sess = mem.sessions.get(&session_id).ok_or(StatusCode::NOT_FOUND)?;
 
@@ -502,7 +784,10 @@ pub async fn complete_session_handler(
         let key = match chunk_keys.get(&i) {
             Some(k) => k.clone(),
             None => {
-                warn!("Missing chunk {} key during completion for session {}", i, session_id);
+                warn!(
+                    "Missing chunk {} key during completion for session {}",
+                    i, session_id
+                );
                 return Err(StatusCode::BAD_REQUEST);
             }
         };
@@ -526,7 +811,8 @@ pub async fn complete_session_handler(
     }
 
     let computed_archive_sha256 = hex::encode(full_archive_hasher.finalize());
-    if !archive_sha256.is_empty() && !computed_archive_sha256.eq_ignore_ascii_case(&archive_sha256) {
+    if !archive_sha256.is_empty() && !computed_archive_sha256.eq_ignore_ascii_case(&archive_sha256)
+    {
         warn!(
             "Session {} archive SHA-256 mismatch: expected {}, computed {}",
             session_id, archive_sha256, computed_archive_sha256
@@ -535,7 +821,7 @@ pub async fn complete_session_handler(
     }
 
     if let Some(ref pool) = state.db {
-        let _ = sqlx::query(
+        sqlx::query(
             r#"
             UPDATE sessions
             SET status = 'ACCEPTED',
@@ -546,7 +832,11 @@ pub async fn complete_session_handler(
         )
         .bind(&session_id)
         .execute(pool)
-        .await;
+        .await
+        .map_err(|error| {
+            error!(%error, session_id, "failed to accept completed session");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
     }
 
     {
