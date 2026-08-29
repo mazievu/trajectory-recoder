@@ -18,6 +18,7 @@ plan file.
 |---|---|---|---|
 | A left `MOUSE_DOWN` followed by a matching `MOUSE_UP` becomes a Click | `cargo test -p correlator mouse_down_then_up_emits_click_with_release_target` failed: expected 1 action, got 0 | Same command passed after the correlator change | The click uses the release target metadata, while a drag remains a DragDrop action. |
 | UIA is not queried for raw mouse movement | `cargo test -p capture-agent uia_lookup_ignores_mouse_moves_but_keeps_semantic_targets` failed at compile time because the policy did not exist | Same command passed after adding the policy | Mouse move and key-up do not request UIA; mouse release requests point metadata and key-down requests focused metadata. |
+| Window layout telemetry does not become a semantic switch | `cargo test -p correlator window_move_does_not_emit_a_canonical_action` failed because `MOVE` became `WINDOW_SWITCH` | Same command passed after the correlator change | `MOVE` and other unsupported window layout notifications do not create an action or overwrite foreground context. |
 
 ## Validation
 
@@ -27,6 +28,7 @@ plan file.
 | 2 | Drag gesture is not misclassified as a click | `cargo test -p correlator` | Unit | PASS — existing drag-drop test |
 | 3 | Semantic UIA lookup policy excludes mouse movement | `cargo test -p capture-agent` | Unit | PASS — 1 test |
 | 4 | Workspace targets compile after the change | `cargo check --workspace --all-targets` | Build | PASS, with pre-existing warnings |
+| 5 | Window movement is excluded from the timeline | `cargo test -p correlator` | Unit | PASS — 5 tests |
 
 ## Coverage and known gaps
 
@@ -43,3 +45,5 @@ UI Automation focus/property-change event stream.
 - `022eb58` — GREEN correlator fix.
 - `f05a2fb` — RED test for semantic UIA policy.
 - `95a24de` — GREEN capture-agent policy fix.
+- `07c391a` — RED test for window-movement noise.
+- `7a2809c` — GREEN filter for window layout telemetry.
