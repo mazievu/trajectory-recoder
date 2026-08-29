@@ -16,7 +16,7 @@ mod tests {
     use core_types::action::{ActionParameters, ActionType};
     use core_types::event::{
         EventSource, RawEvent, RawEventPayload,
-        RawKeyboardEvent, RawMouseEvent, RawWindowEvent,
+        RawBrowserEvent, RawKeyboardEvent, RawMouseEvent, RawWindowEvent,
     };
     use core_types::id::{GlobalEventId, SessionId};
     use core_types::metadata::{BoundingRect, MouseButton, Point2D, TargetMetadata};
@@ -161,6 +161,38 @@ mod tests {
         );
 
         assert!(engine.process_event(&raw, None).is_empty());
+    }
+
+    #[test]
+    fn browser_navigation_emits_canonical_navigate_action() {
+        let global_seq = Arc::new(AtomicU64::new(100));
+        let mut engine = CorrelationEngine::new("sess_test", "user1", "mach1", global_seq);
+        let raw = RawEvent::new(
+            1,
+            GlobalEventId::new(100),
+            DualTimestamp::now(),
+            "mach1".to_string(),
+            1,
+            "user1".to_string(),
+            EventSource::BrowserExtension,
+            1,
+            RawEventPayload::Browser(RawBrowserEvent {
+                tab_id: 7,
+                event_type: "SPA_NAVIGATION".to_string(),
+                url: "https://example.test/orders".to_string(),
+                tag_name: "body".to_string(),
+                target_id: None,
+                target_class: None,
+                target_text: None,
+                css_selector: None,
+                xpath: None,
+                bounds: Default::default(),
+            }),
+        );
+
+        let actions = engine.process_event(&raw, None);
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0].action_type, ActionType::Navigate);
     }
 
     #[test]
