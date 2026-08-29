@@ -1,11 +1,21 @@
 //! Trajectory Browser Native Messaging Host binary.
 //! Bridges Chrome / Edge Manifest V3 Native Messaging stdio <-> Windows Named Pipe IPC.
 
-use diagnostics::{init_diagnostics, DiagnosticsConfig};
+use diagnostics::{DiagnosticsConfig, init_diagnostics};
 use ipc::{IpcMessage, ReconnectingIpcClient};
 use std::io::{self, Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
-use tracing::{error, info};
+use tracing::{error, info, warn};
+
+/// Browser-host sequences are source-local. The `GlobalEventId(0)` sentinel
+/// is replaced by capture-agent's durable allocator before publication.
+fn build_ipc_event(
+    sequence: &AtomicU64,
+    dom_event: browser_events::BrowserDomEvent,
+) -> core_types::event::RawEvent {
+    let source_sequence = sequence.fetch_add(1, Ordering::Relaxed);
+    dom_event.to_unassigned_raw_event(source_sequence, "BROWSER_HOST", 1, "user")
+}
 
 #[cfg(test)]
 mod tests {
@@ -28,6 +38,7 @@ mod tests {
             href: None,
             placeholder: None,
             input_type: None,
+            value_length: None,
             value: None,
             css_selector: None,
             xpath: None,
@@ -41,7 +52,10 @@ mod tests {
 
         assert_eq!(first.event_id, 1);
         assert_eq!(second.event_id, 2);
-        assert_eq!(first.global_event_id, Some(core_types::id::GlobalEventId::new(0)));
+        assert_eq!(
+            first.global_event_id,
+            Some(core_types::id::GlobalEventId::new(0))
+        );
     }
 }
 
@@ -64,6 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stdout = io::stdout().lock();
 
     let mut len_buf = [0u8; 4];
+    let source_sequence = AtomicU64::new(1);
 
     loop {
         // Read 4-byte native length prefix
@@ -82,26 +97,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         }
 
-        if let Ok(json_str) = std::str::from_utf8(&payload_buf) {
-            // Forward to Named Pipe IPC
-            if let Ok(dom_event) = serde_json::from_str::<browser_events::BrowserDomEvent>(json_str) {
-                let raw = dom_event.to_raw_event(
-                    1,
-                    core_types::id::GlobalEventId::new(1),
-                    "BROWSER_HOST",
-                    1,
-                    "user",
-                );
-                let ipc_msg = IpcMessage::BrowserDomEvent(Box::new(raw));
-                let _ = send_tx.send(ipc_msg).await;
-            }
+        match std::str::from_utf8(&payload_buf) {
+            Ok(json_str) => match serde_json::from_str::<browser_events::BrowserDomEvent>(json_str)
+            {
+                Ok(dom_event) => {
+                    let raw = build_ipc_event(&source_sequence, dom_event);
+                    let ipc_msg = IpcMessage::BrowserDomEvent(Box::new(raw));
+                    if send_tx.send(ipc_msg).await.is_err() {
+                        error!("Browser event IPC receiver closed; stopping host");
+                        break;
+                    }
+                }
+                Err(err) => warn!(error = %err, "Rejected malformed browser event payload"),
+            },
+            Err(err) => warn!(error = %err, "Rejected non-UTF-8 browser event payload"),
+        }
 
-            // Write 4-byte native length prefixed JSON response back to browser extension
-            let response = b"{\"status\":\"received\"}";
-            let resp_len = (response.len() as u32).to_ne_bytes();
-            let _ = stdout.write_all(&resp_len);
-            let _ = stdout.write_all(response);
-            let _ = stdout.flush();
+        // Write 4-byte native length prefixed JSON response back to browser extension
+        let response = b"{\"status\":\"received\"}";
+        let resp_len = (response.len() as u32).to_ne_bytes();
+        if stdout.write_all(&resp_len).is_err()
+            || stdout.write_all(response).is_err()
+            || stdout.flush().is_err()
+        {
+            break;
         }
     }
 

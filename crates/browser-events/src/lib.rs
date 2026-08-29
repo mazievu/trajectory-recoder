@@ -22,6 +22,9 @@ pub struct BrowserDomEvent {
     pub href: Option<String>,
     pub placeholder: Option<String>,
     pub input_type: Option<String>,
+    /// Size of an edited form value. Values themselves must never be sent.
+    #[serde(default)]
+    pub value_length: Option<usize>,
     pub value: Option<String>,
     pub css_selector: Option<String>,
     pub xpath: Option<String>,
@@ -68,10 +71,14 @@ impl BrowserDomEvent {
             is_enabled: Some(true),
             is_keyboard_focusable: Some(true),
             is_password: self.is_password,
+            // Extension data is untrusted. Do not turn a stale or compromised
+            // extension into a plaintext form-value persistence path.
             value: if self.is_password {
                 Some("[PASSWORD_REDACTED]".to_string())
+            } else if self.value.is_some() || self.value_length.is_some() {
+                Some("[UNOBSERVED_TEXT]".to_string())
             } else {
-                self.value.clone()
+                None
             },
             help_text: None,
             ancestor_chain: Vec::new(),
@@ -83,6 +90,41 @@ impl BrowserDomEvent {
 
     /// Convert to `RawEvent` with `RawBrowserEvent` payload.
     pub fn to_raw_event(
+        &self,
+        event_seq: u64,
+        global_event_id: GlobalEventId,
+        machine_id: impl Into<String>,
+        windows_session_id: u32,
+        user_id: impl Into<String>,
+    ) -> RawEvent {
+        self.to_raw_event_with_global_id(
+            event_seq,
+            global_event_id,
+            machine_id,
+            windows_session_id,
+            user_id,
+        )
+    }
+
+    /// Uses `GlobalEventId(0)` only as an in-transit sentinel. The capture
+    /// agent must replace it with an allocator-issued ID before persistence.
+    pub fn to_unassigned_raw_event(
+        &self,
+        event_seq: u64,
+        machine_id: impl Into<String>,
+        windows_session_id: u32,
+        user_id: impl Into<String>,
+    ) -> RawEvent {
+        self.to_raw_event_with_global_id(
+            event_seq,
+            GlobalEventId::new(0),
+            machine_id,
+            windows_session_id,
+            user_id,
+        )
+    }
+
+    fn to_raw_event_with_global_id(
         &self,
         event_seq: u64,
         global_event_id: GlobalEventId,
@@ -137,6 +179,7 @@ mod tests {
             href: None,
             placeholder: None,
             input_type: None,
+            value_length: None,
             value: None,
             css_selector: Some("#btn-pay".to_string()),
             xpath: Some("//button[@id='btn-pay']".to_string()),
@@ -172,6 +215,7 @@ mod tests {
             href: None,
             placeholder: None,
             input_type: Some("text".to_string()),
+            value_length: Some("private user input".len()),
             value: Some("private user input".to_string()),
             css_selector: Some("#display-name".to_string()),
             xpath: Some("//input[@id='display-name']".to_string()),
@@ -200,6 +244,7 @@ mod tests {
             href: None,
             placeholder: None,
             input_type: None,
+            value_length: None,
             value: None,
             css_selector: None,
             xpath: None,

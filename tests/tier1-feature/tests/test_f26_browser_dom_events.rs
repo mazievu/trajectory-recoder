@@ -16,6 +16,7 @@ fn test_f26_browser_dom_events_and_xpath() {
         href: None,
         placeholder: Some("Enter username".to_string()),
         input_type: Some("text".to_string()),
+        value_length: Some("alice_smith".len()),
         value: Some("alice_smith".to_string()),
         css_selector: Some("#username-field".to_string()),
         xpath: Some("//input[@id='username-field']".to_string()),
@@ -27,6 +28,6 @@ fn test_f26_browser_dom_events_and_xpath() {
     let target = dom_event.to_target_metadata();
     assert_eq!(target.control_type.as_deref(), Some("input"));
     assert_eq!(target.automation_id.as_deref(), Some("username-field"));
-    assert_eq!(target.value.as_deref(), Some("alice_smith"));
+    assert_eq!(target.value.as_deref(), Some("[UNOBSERVED_TEXT]"));
     assert_eq!(target.framework_id.as_deref(), Some("DOM"));
 }

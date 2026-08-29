@@ -1,0 +1,13 @@
+{
+  "name": "trajectory-recorder-browser-extension",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "check": "tsc --project tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.323",
+    "typescript": "^5.7.3"
+  }
+}

@@ -8,25 +8,21 @@
     "scripting",
     "tabs",
     "nativeMessaging",
-    "storage"
+    "storage",
+    "webNavigation"
   ],
   "host_permissions": [
     "<all_urls>"
   ],
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "dist/background.js"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["selector.js", "content.js"],
+      "js": ["dist/selector.js", "dist/content.js"],
       "run_at": "document_start",
       "all_frames": true
     }
-  ],
-  "icons": {
-    "16": "icons/icon16.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
-  }
+  ]
 }
