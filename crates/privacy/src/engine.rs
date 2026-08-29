@@ -184,14 +184,14 @@ impl PrivacyEngine {
             ActionParameters::TypeText(tp) => {
                 if action.target.is_password {
                     tp.text = "[PASSWORD_REDACTED]".to_string();
-                    tp.is_redacted = true;
                 } else {
-                    let (clean_text, was_redacted) = self.redact_text(&tp.text);
-                    tp.text = clean_text;
-                    if was_redacted {
-                        tp.is_redacted = true;
-                    }
+                    // A Win32 hook cannot reliably establish that a text
+                    // field is safe. Persist only length and editing metadata
+                    // until a future trusted DOM/UIA policy explicitly marks
+                    // the field as safe.
+                    tp.text = "[UNOBSERVED_TEXT]".to_string();
                 }
+                tp.is_redacted = true;
             }
             ActionParameters::Clipboard(cp) => {
                 if let Some(ref preview) = cp.redacted_preview {
@@ -206,10 +206,19 @@ impl PrivacyEngine {
     /// Redact a raw event if it targets password elements or sensitive fields.
     pub fn redact_raw_event(&self, event: &mut RawEvent) {
         match &mut event.payload {
-            RawEventPayload::Keyboard(_kb) => {
-                // If keyboard logging is enabled and flagged as password, raw keys are zeroed
+            RawEventPayload::Keyboard(kb) if is_printable_virtual_key(kb.vk_code) => {
+                // Raw event storage must not become a keylogger. Canonical
+                // correlation consumes the original event in memory before
+                // this persistence-bound redaction step.
+                kb.vk_code = 0;
+                kb.scan_code = 0;
+                kb.key_name = "[UNOBSERVED_TEXT]".to_string();
             }
             _ => {}
         }
     }
+}
+
+fn is_printable_virtual_key(vk_code: u32) -> bool {
+    matches!(vk_code, 0x20 | 0x30..=0x5A | 0x60..=0x6F | 0xBA..=0xDF)
 }

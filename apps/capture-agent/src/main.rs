@@ -172,12 +172,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Drain events from priority event bus with 50ms timeout
         match bus_recv.recv_timeout(Duration::from_millis(50)) {
             Ok((priority, mut raw_event)) => {
-                // Privacy redaction on raw event
-                privacy_engine.redact_raw_event(&mut raw_event);
-
-                // Write raw event to NDJSON log
-                let _ = session_mgr.write_raw_event(&raw_event);
-
                 // Query UIA only for semantic events, never for raw mouse movement.
                 let target_metadata =
                     target_metadata_for_event(&uia_inspector, &raw_event.payload).await;
@@ -190,6 +184,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     // Persist to SQLite WAL database
                     let _ = session_mgr.write_canonical_action(&action);
                 }
+
+                // Raw events are only persisted after correlation has consumed
+                // the in-memory event. This prevents disk artifacts from
+                // becoming a reconstructable keyboard log.
+                privacy_engine.redact_raw_event(&mut raw_event);
+                let _ = session_mgr.write_raw_event(&raw_event);
             }
             Err(_) => {
                 // Timeout: periodic flush of typing/scroll burst aggregators

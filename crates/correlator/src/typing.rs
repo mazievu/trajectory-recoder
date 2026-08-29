@@ -13,7 +13,6 @@ pub struct TypingBurstAggregator {
 struct ActiveTypingBurst {
     start_time: DualTimestamp,
     last_keystroke_instant: Instant,
-    buffer: String,
     char_count: usize,
     backspace_count: usize,
     enter_pressed: bool,
@@ -40,7 +39,7 @@ impl TypingBurstAggregator {
         &mut self,
         timestamp: DualTimestamp,
         vk_code: u32,
-        key_name: &str,
+        _key_name: &str,
         is_down: bool,
         target: TargetMetadata,
         context: ContextMetadata,
@@ -64,11 +63,24 @@ impl TypingBurstAggregator {
             }
         }
 
-        // Add to active burst or start new burst
+        // Modifier keys participate in ordinary text entry but carry no text
+        // themselves. They must not fragment the burst or be persisted.
+        if is_modifier_key(vk_code) {
+            return completed_action;
+        }
+
+        // Navigation and other non-text keys close a pending text burst. They
+        // are represented separately by the correlator when supported.
+        if !is_text_input_key(vk_code) && !matches!(vk_code, 0x08 | 0x0D) {
+            return completed_action.or_else(|| self.flush(session_id, next_global_id, session_event_id));
+        }
+
+        // Add to active burst or start new burst. The buffer intentionally
+        // never contains typed characters: this layer only retains length and
+        // editing metadata until canonical privacy redaction runs.
         let burst = self.current_burst.get_or_insert_with(|| ActiveTypingBurst {
             start_time: timestamp,
             last_keystroke_instant: now,
-            buffer: String::new(),
             char_count: 0,
             backspace_count: 0,
             enter_pressed: false,
@@ -82,25 +94,16 @@ impl TypingBurstAggregator {
             0x08 => {
                 // Backspace
                 burst.backspace_count += 1;
-                burst.buffer.pop();
             }
             0x0D => {
                 // Enter
                 burst.enter_pressed = true;
-                burst.char_count += 1;
-            }
-            0x20 => {
-                // Space
-                burst.char_count += 1;
-                burst.buffer.push(' ');
+                return self.flush(session_id, next_global_id, session_event_id);
             }
             _ => {
+                // `is_text_input_key` includes space and printable virtual
+                // keys. Do not reconstruct plaintext from key names.
                 burst.char_count += 1;
-                if key_name.len() == 1 {
-                    burst.buffer.push_str(key_name);
-                } else if !key_name.starts_with("VK_") {
-                    burst.buffer.push_str(key_name);
-                }
             }
         }
 
@@ -140,10 +143,10 @@ impl TypingBurstAggregator {
             text: if is_pwd {
                 "[PASSWORD_REDACTED]".to_string()
             } else {
-                active.buffer.clone()
+                "[UNOBSERVED_TEXT]".to_string()
             },
             length: active.char_count,
-            is_redacted: is_pwd,
+            is_redacted: true,
             character_count: active.char_count,
             backspace_count: active.backspace_count,
             enter_pressed: active.enter_pressed,
@@ -172,4 +175,12 @@ impl TypingBurstAggregator {
             ),
         })
     }
+}
+
+fn is_modifier_key(vk_code: u32) -> bool {
+    matches!(vk_code, 0x10 | 0x11 | 0x12 | 0xA0..=0xA5)
+}
+
+fn is_text_input_key(vk_code: u32) -> bool {
+    matches!(vk_code, 0x20 | 0x30..=0x5A | 0x60..=0x6F | 0xBA..=0xDF)
 }
