@@ -174,3 +174,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("Trajectory Desktop Capture Agent stopped cleanly.");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core_types::event::{RawEventPayload, RawKeyboardEvent, RawMouseEvent};
+
+    #[test]
+    fn uia_lookup_ignores_mouse_moves_but_keeps_semantic_targets() {
+        let mouse_move = RawEventPayload::Mouse(RawMouseEvent {
+            event_type: "MOUSE_MOVE".to_string(),
+            physical_x: 10,
+            physical_y: 20,
+            ..Default::default()
+        });
+        assert_eq!(uia_lookup_request(&mouse_move), None);
+
+        let mouse_up = RawEventPayload::Mouse(RawMouseEvent {
+            event_type: "MOUSE_UP".to_string(),
+            physical_x: 10,
+            physical_y: 20,
+            ..Default::default()
+        });
+        assert_eq!(
+            uia_lookup_request(&mouse_up),
+            Some(UiaLookupRequest::Point(10, 20))
+        );
+
+        let key_down = RawEventPayload::Keyboard(RawKeyboardEvent {
+            event_type: "KEY_DOWN".to_string(),
+            ..Default::default()
+        });
+        assert_eq!(
+            uia_lookup_request(&key_down),
+            Some(UiaLookupRequest::Focused)
+        );
+
+        let key_up = RawEventPayload::Keyboard(RawKeyboardEvent {
+            event_type: "KEY_UP".to_string(),
+            ..Default::default()
+        });
+        assert_eq!(uia_lookup_request(&key_up), None);
+    }
+}
