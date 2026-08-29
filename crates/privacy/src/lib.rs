@@ -68,7 +68,7 @@ mod tests {
     }
 
     #[test]
-    fn test_canonical_action_full_redaction() {
+    fn test_canonical_text_is_fail_closed_when_target_safety_is_unknown() {
         let engine = PrivacyEngine::default();
 
         let mut action = CanonicalActionBuilder::new(
@@ -78,8 +78,8 @@ mod tests {
             DualTimestamp::now(),
             core_types::action::ActionType::TypeText,
             ActionParameters::TypeText(TypeTextParams {
-                text: "SSN 999-88-7777".to_string(),
-                length: 15,
+                text: "ordinary typed text".to_string(),
+                length: 19,
                 is_redacted: false,
                 character_count: 15,
                 backspace_count: 0,
@@ -92,7 +92,7 @@ mod tests {
 
         if let ActionParameters::TypeText(ref tp) = action.parameters {
             assert!(tp.is_redacted);
-            assert_eq!(tp.text, "SSN [SSN_REDACTED]");
+            assert_eq!(tp.text, "[UNOBSERVED_TEXT]");
         } else {
             panic!("Expected TypeText parameters");
         }

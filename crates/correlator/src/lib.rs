@@ -322,8 +322,9 @@ mod tests {
 
         assert_eq!(action.action_type, ActionType::TypeText);
         if let ActionParameters::TypeText(ref tp) = action.parameters {
-            assert_eq!(tp.text, "Hi");
-            assert_eq!(tp.character_count, 2);
+        assert_eq!(tp.text, "[UNOBSERVED_TEXT]");
+        assert_eq!(tp.character_count, 2);
+        assert!(tp.is_redacted);
         }
     }
 }
