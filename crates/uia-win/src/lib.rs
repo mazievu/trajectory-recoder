@@ -14,7 +14,6 @@ pub use model::{UiaAncestorInfo, UiaElementInfo, control_type_id_to_name};
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core_types::metadata::BoundingRect;
 
     #[tokio::test]
     async fn test_mock_uia_inspection_and_ancestors() {
