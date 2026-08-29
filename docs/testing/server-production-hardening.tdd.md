@@ -15,7 +15,8 @@ Source plan: derived during this remediation run.
 | Stage | Command | Result |
 | --- | --- | --- |
 | RED | `cargo test -p server --test test_server_api -- --nocapture` | 4 pass, 2 fail: empty JWT secret was accepted and unauthenticated session initiation returned 200. |
-| GREEN | `cargo test -p server -- --nocapture` | 16 pass, 0 fail. |
+| RED (checksum) | `cargo test -p server --test test_server_api -- --nocapture` | 9 pass, 1 fail: a chunk without `X-Chunk-SHA256` returned 200. |
+| GREEN | `cargo test -p server -- --nocapture` | 18 pass, 0 fail. |
 | Startup fail-closed | `cargo run -p server --bin trajectory-server` with required variables removed | Exit 1: `required environment variable DATABASE_URL is not set`. |
 
 ## Guarantees
@@ -25,9 +26,10 @@ Source plan: derived during this remediation run.
 | Empty JWT signing secrets cannot create or verify tokens. | `jwt_rejects_an_empty_signing_secret` | PASS |
 | Missing JWT is rejected and a JWT subject cannot claim another `machine_id`. | `session_initiation_requires_a_machine_jwt_and_rejects_spoofed_machine_id` | PASS |
 | A different machine cannot upload to an existing session. | `session_chunks_are_only_available_to_the_machine_that_initiated_the_session` | PASS |
+| Uploads require a valid 64-character `X-Chunk-SHA256` and complete verifies declared archive size. | `upload_rejects_a_chunk_without_a_sha256_header`, `completion_rejects_an_archive_with_the_wrong_declared_size` | PASS |
 | Invalid enrollment credentials cannot register a machine. | `registration_rejects_an_invalid_enrollment_token` | PASS |
 | Production configuration rejects short secrets and HTTP object-store endpoints. | `production_config_rejects_insecure_secrets_and_http_storage` | PASS |
-| Existing hash, resumability and archive verification flows remain valid under JWT authorization. | `test_server_api`, `test_server_stress` | PASS (16 tests) |
+| Existing hash, resumability and archive verification flows remain valid under JWT authorization. | `test_server_api`, `test_server_stress` | PASS (18 tests) |
 
 ## Known gaps
 

@@ -534,10 +534,11 @@ pub async fn upload_chunk_handler(
     let claimed_sha256 = headers
         .get("X-Chunk-SHA256")
         .and_then(|v| v.to_str().ok())
-        .unwrap_or_default();
+        .filter(|value| value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .ok_or(StatusCode::BAD_REQUEST)?;
 
     let computed_digest = hex::encode(Sha256::digest(&body));
-    if !claimed_sha256.is_empty() && !claimed_sha256.eq_ignore_ascii_case(&computed_digest) {
+    if !claimed_sha256.eq_ignore_ascii_case(&computed_digest) {
         warn!(
             "Chunk {} SHA-256 mismatch for session {}: claimed={}, computed={}",
             chunk_index, session_id, claimed_sha256, computed_digest
@@ -719,9 +720,11 @@ pub async fn complete_session_handler(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     require_session_owner(&state, &headers, &session_id).await?;
-    let (expected_chunks, archive_sha256, chunk_keys) = if let Some(pool) = &state.db {
-        let (expected_chunks, archive_sha256): (i32, String) = sqlx::query_as(
-            "SELECT expected_chunks, archive_sha256 FROM sessions WHERE session_id = $1",
+    let (expected_chunks, total_size_bytes, archive_sha256, chunk_keys) = if let Some(pool) =
+        &state.db
+    {
+        let (expected_chunks, total_size_bytes, archive_sha256): (i32, i64, String) = sqlx::query_as(
+            "SELECT expected_chunks, total_size_bytes, archive_sha256 FROM sessions WHERE session_id = $1",
         )
         .bind(&session_id)
         .fetch_optional(pool)
@@ -752,6 +755,7 @@ pub async fn complete_session_handler(
         }
         (
             expected_chunks as usize,
+            total_size_bytes as u64,
             archive_sha256,
             chunks
                 .into_iter()
@@ -774,12 +778,14 @@ pub async fn complete_session_handler(
 
         (
             sess.expected_chunks,
+            sess.total_size_bytes,
             sess.archive_sha256.clone(),
             sess.chunk_storage_keys.clone(),
         )
     };
 
     let mut full_archive_hasher = Sha256::new();
+    let mut reconstructed_size_bytes = 0_u64;
     for i in 0..expected_chunks {
         let key = match chunk_keys.get(&i) {
             Some(k) => k.clone(),
@@ -807,7 +813,19 @@ pub async fn complete_session_handler(
             }
         };
 
+        reconstructed_size_bytes =
+            reconstructed_size_bytes.saturating_add(chunk_bytes.len() as u64);
         full_archive_hasher.update(&chunk_bytes);
+    }
+
+    if reconstructed_size_bytes != total_size_bytes {
+        warn!(
+            session_id,
+            expected = total_size_bytes,
+            actual = reconstructed_size_bytes,
+            "session archive size mismatch"
+        );
+        return Err(StatusCode::UNPROCESSABLE_ENTITY);
     }
 
     let computed_archive_sha256 = hex::encode(full_archive_hasher.finalize());

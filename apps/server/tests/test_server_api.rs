@@ -195,6 +195,65 @@ async fn upload_rejects_a_chunk_without_a_sha256_header() {
 }
 
 #[tokio::test]
+async fn completion_rejects_an_archive_with_the_wrong_declared_size() {
+    let state = AppState::new_in_memory();
+    let app = create_router(state.clone());
+    let token = create_jwt("MACHINE_01", &state.jwt_secret).unwrap();
+    let payload = b"short archive";
+    let request = InitiateRequest {
+        session_id: "SESS_SIZE_MISMATCH".to_string(),
+        chunk_count: 1,
+        total_size_bytes: (payload.len() + 1) as u64,
+        archive_sha256: hex::encode(Sha256::digest(payload)),
+        machine_id: Some("MACHINE_01".to_string()),
+        schema_version: Some("1.0".to_string()),
+        user_id: Some("USER_01".to_string()),
+    };
+    let initiated = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/sessions")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::from(serde_json::to_string(&request).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(initiated.status(), StatusCode::OK);
+
+    let uploaded = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/sessions/SESS_SIZE_MISMATCH/chunks/0")
+                .header("Authorization", format!("Bearer {token}"))
+                .header("X-Chunk-SHA256", hex::encode(Sha256::digest(payload)))
+                .body(Body::from(payload.to_vec()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(uploaded.status(), StatusCode::OK);
+
+    let completed = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/sessions/SESS_SIZE_MISMATCH/complete")
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(completed.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
 async fn test_jwt_generation_and_validation() {
     let secret = "my_secure_jwt_secret_key_987654321";
     let token = create_jwt("MACHINE_99", secret).unwrap();
