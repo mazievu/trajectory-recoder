@@ -1,10 +1,12 @@
 //! UI Automation COM engine and element inspector with 3-level tree walking.
 
 pub mod inspector;
+pub mod focus;
 pub mod mock;
 pub mod model;
 pub mod walker;
 
+pub use focus::{FocusChange, FocusChangeDetector, FocusEvidence};
 pub use inspector::UiaInspector;
 pub use mock::{create_mock_button, create_mock_password_box, MockUiaStore};
 pub use model::{control_type_id_to_name, UiaAncestorInfo, UiaElementInfo};
@@ -62,5 +64,58 @@ mod tests {
         assert_eq!(control_type_id_to_name(50004), "Edit");
         assert_eq!(control_type_id_to_name(50032), "Window");
         assert_eq!(control_type_id_to_name(99999), "Unknown");
+    }
+
+    #[tokio::test]
+    async fn focus_detector_emits_only_transitions_and_never_exposes_values() {
+        let store = std::sync::Arc::new(MockUiaStore::new());
+        let mut first = create_mock_button("Save", "save_button", 10, 20, 100, 30);
+        first.value = Some("must not be persisted".to_string());
+        store.set_focused(Some(first));
+
+        let inspector = UiaInspector::with_mock_store(store.clone());
+        let mut detector = FocusChangeDetector::new();
+
+        let gained = inspector
+            .inspect_focus_change(&mut detector)
+            .await
+            .expect("initial focus must be evidence");
+        assert_eq!(gained.change, FocusChange::Gained);
+        assert_eq!(gained.target.as_ref().and_then(|target| target.value.as_deref()), None);
+
+        assert!(inspector.inspect_focus_change(&mut detector).await.is_none());
+
+        store.set_focused(Some(create_mock_button("Cancel", "cancel_button", 10, 20, 100, 30)));
+        let changed = inspector
+            .inspect_focus_change(&mut detector)
+            .await
+            .expect("a different focused control must be evidence");
+        assert_eq!(changed.change, FocusChange::Changed);
+        assert_eq!(changed.previous.as_ref().and_then(|target| target.automation_id.as_deref()), Some("save_button"));
+        assert_eq!(changed.target.as_ref().and_then(|target| target.automation_id.as_deref()), Some("cancel_button"));
+
+        store.set_focused(None);
+        let lost = inspector
+            .inspect_focus_change(&mut detector)
+            .await
+            .expect("loss of focus must be evidence");
+        assert_eq!(lost.change, FocusChange::Lost);
+        assert!(lost.target.is_none());
+    }
+
+    #[test]
+    fn focus_detector_bounds_identity_metadata() {
+        let mut detector = FocusChangeDetector::new();
+        let long_name = "x".repeat(600);
+        let evidence = detector
+            .observe(Some(UiaElementInfo {
+                name: Some(long_name),
+                control_type: "Edit".to_string(),
+                automation_id: Some("field".to_string()),
+                ..Default::default()
+            }.to_target_metadata()))
+            .expect("initial focus must emit evidence");
+
+        assert_eq!(evidence.target.expect("target").name.expect("name").chars().count(), 256);
     }
 }
