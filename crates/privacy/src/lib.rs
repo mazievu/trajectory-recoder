@@ -12,6 +12,7 @@ pub use patterns::is_valid_luhn_credit_card;
 mod tests {
     use super::*;
     use core_types::action::{ActionParameters, CanonicalActionBuilder, TypeTextParams};
+    use core_types::event::{EventSource, RawEvent, RawEventPayload, RawKeyboardEvent};
     use core_types::id::{GlobalEventId, SessionId};
     use core_types::metadata::TargetMetadata;
     use core_types::timestamp::DualTimestamp;
@@ -96,5 +97,36 @@ mod tests {
         } else {
             panic!("Expected TypeText parameters");
         }
+    }
+
+    #[test]
+    fn test_printable_raw_keyboard_event_is_not_persistable_as_a_keylogger() {
+        let engine = PrivacyEngine::default();
+        let mut event = RawEvent::new(
+            1,
+            GlobalEventId::new(1),
+            DualTimestamp::now(),
+            "machine".to_string(),
+            1,
+            "user".to_string(),
+            EventSource::InputHook,
+            1,
+            RawEventPayload::Keyboard(RawKeyboardEvent {
+                event_type: "KEY_DOWN".to_string(),
+                vk_code: 0x41,
+                scan_code: 30,
+                key_name: "A".to_string(),
+                ..Default::default()
+            }),
+        );
+
+        engine.redact_raw_event(&mut event);
+
+        let RawEventPayload::Keyboard(keyboard) = event.payload else {
+            panic!("expected keyboard payload");
+        };
+        assert_eq!(keyboard.vk_code, 0);
+        assert_eq!(keyboard.scan_code, 0);
+        assert_eq!(keyboard.key_name, "[UNOBSERVED_TEXT]");
     }
 }
