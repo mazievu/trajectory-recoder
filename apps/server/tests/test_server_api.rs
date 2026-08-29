@@ -4,6 +4,56 @@ use server::{create_jwt, create_router, verify_jwt, AppState, InitiateRequest};
 use sha2::{Digest, Sha256};
 use tower::ServiceExt;
 
+#[test]
+fn jwt_rejects_an_empty_signing_secret() {
+    assert!(create_jwt("MACHINE_99", "").is_err());
+    assert!(verify_jwt("not-a-token", "").is_err());
+}
+
+#[tokio::test]
+async fn session_initiation_requires_a_machine_jwt_and_rejects_spoofed_machine_id() {
+    let state = AppState::new_in_memory();
+    let app = create_router(state.clone());
+    let request = InitiateRequest {
+        session_id: "SESS_AUTH_REQUIRED".to_string(),
+        chunk_count: 1,
+        total_size_bytes: 1,
+        archive_sha256: hex::encode(Sha256::digest(b"x")),
+        machine_id: Some("MACHINE_B".to_string()),
+        schema_version: Some("1.0".to_string()),
+        user_id: Some("USER_01".to_string()),
+    };
+
+    let unauthenticated = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/sessions")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&request).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(unauthenticated.status(), StatusCode::UNAUTHORIZED);
+
+    let machine_a_token = create_jwt("MACHINE_A", &state.jwt_secret).unwrap();
+    let spoofed = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/sessions")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {machine_a_token}"))
+                .body(Body::from(serde_json::to_string(&request).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(spoofed.status(), StatusCode::FORBIDDEN);
+}
+
 #[tokio::test]
 async fn test_jwt_generation_and_validation() {
     let secret = "my_secure_jwt_secret_key_987654321";
