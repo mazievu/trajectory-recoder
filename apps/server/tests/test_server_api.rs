@@ -151,6 +151,50 @@ async fn session_chunks_are_only_available_to_the_machine_that_initiated_the_ses
 }
 
 #[tokio::test]
+async fn upload_rejects_a_chunk_without_a_sha256_header() {
+    let state = AppState::new_in_memory();
+    let app = create_router(state.clone());
+    let token = create_jwt("MACHINE_01", &state.jwt_secret).unwrap();
+    let payload = b"chunk requiring a checksum";
+    let request = InitiateRequest {
+        session_id: "SESS_REQUIRED_CHECKSUM".to_string(),
+        chunk_count: 1,
+        total_size_bytes: payload.len() as u64,
+        archive_sha256: hex::encode(Sha256::digest(payload)),
+        machine_id: Some("MACHINE_01".to_string()),
+        schema_version: Some("1.0".to_string()),
+        user_id: Some("USER_01".to_string()),
+    };
+    let initiated = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/sessions")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::from(serde_json::to_string(&request).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(initiated.status(), StatusCode::OK);
+
+    let missing_checksum = app
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/sessions/SESS_REQUIRED_CHECKSUM/chunks/0")
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::from(payload.to_vec()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(missing_checksum.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn test_jwt_generation_and_validation() {
     let secret = "my_secure_jwt_secret_key_987654321";
     let token = create_jwt("MACHINE_99", secret).unwrap();
