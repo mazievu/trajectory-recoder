@@ -182,9 +182,9 @@ chrome.webNavigation.onCommitted.addListener(async (details) => {
   if (details.frameId !== 0) return;
   try {
     const tab = await chrome.tabs.get(details.tabId);
-    emitLifecycle('NAVIGATION_COMMITTED', details.tabId, details.url, tab.title || '');
+    emitLifecycle('NAVIGATION', details.tabId, details.url, tab.title || '');
   } catch {
-    emitLifecycle('NAVIGATION_COMMITTED', details.tabId, details.url, '');
+    emitLifecycle('NAVIGATION', details.tabId, details.url, '');
   }
 });
 
