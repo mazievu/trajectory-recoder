@@ -4,7 +4,46 @@
 use diagnostics::{init_diagnostics, DiagnosticsConfig};
 use ipc::{IpcMessage, ReconnectingIpcClient};
 use std::io::{self, Read, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tracing::{error, info};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn browser_ingress_uses_monotonic_source_sequence_and_unassigned_global_id() {
+        let sequence = AtomicU64::new(1);
+        let dom_event = browser_events::BrowserDomEvent {
+            tab_id: 1,
+            url: "https://example.com/".to_string(),
+            page_title: "Example".to_string(),
+            event_type: "NAVIGATION_COMMITTED".to_string(),
+            tag: "document".to_string(),
+            role: None,
+            visible_text: None,
+            aria_label: None,
+            element_id: None,
+            class_name: None,
+            href: None,
+            placeholder: None,
+            input_type: None,
+            value: None,
+            css_selector: None,
+            xpath: None,
+            timestamp_ms: 1,
+            is_password: false,
+            mutation_info: None,
+        };
+
+        let first = build_ipc_event(&sequence, dom_event.clone());
+        let second = build_ipc_event(&sequence, dom_event);
+
+        assert_eq!(first.event_id, 1);
+        assert_eq!(second.event_id, 2);
+        assert_eq!(first.global_event_id, Some(core_types::id::GlobalEventId::new(0)));
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

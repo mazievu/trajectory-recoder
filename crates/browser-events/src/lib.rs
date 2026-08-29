@@ -155,4 +155,62 @@ mod tests {
         assert_eq!(selector.css_selector.as_deref(), Some("#btn-pay"));
         assert_eq!(selector.xpath.as_deref(), Some("//button[@id='btn-pay']"));
     }
+
+    #[test]
+    fn browser_form_values_are_never_exposed_in_target_metadata() {
+        let dom_event = BrowserDomEvent {
+            tab_id: 101,
+            url: "https://example.com/profile".to_string(),
+            page_title: "Profile".to_string(),
+            event_type: "CHANGE".to_string(),
+            tag: "input".to_string(),
+            role: Some("textbox".to_string()),
+            visible_text: None,
+            aria_label: Some("Display name".to_string()),
+            element_id: Some("display-name".to_string()),
+            class_name: None,
+            href: None,
+            placeholder: None,
+            input_type: Some("text".to_string()),
+            value: Some("private user input".to_string()),
+            css_selector: Some("#display-name".to_string()),
+            xpath: Some("//input[@id='display-name']".to_string()),
+            timestamp_ms: 1_700_000_000,
+            is_password: false,
+            mutation_info: None,
+        };
+
+        let target = dom_event.to_target_metadata();
+        assert_eq!(target.value.as_deref(), Some("[UNOBSERVED_TEXT]"));
+    }
+
+    #[test]
+    fn browser_events_can_be_serialized_with_an_unassigned_global_id() {
+        let dom_event = BrowserDomEvent {
+            tab_id: 7,
+            url: "https://example.com/".to_string(),
+            page_title: "Example".to_string(),
+            event_type: "TAB_CREATED".to_string(),
+            tag: "tab".to_string(),
+            role: None,
+            visible_text: None,
+            aria_label: None,
+            element_id: None,
+            class_name: None,
+            href: None,
+            placeholder: None,
+            input_type: None,
+            value: None,
+            css_selector: None,
+            xpath: None,
+            timestamp_ms: 1_700_000_000,
+            is_password: false,
+            mutation_info: None,
+        };
+
+        let raw = dom_event.to_unassigned_raw_event(42, "machine", 1, "user");
+        assert_eq!(raw.event_id, 42);
+        assert_eq!(raw.source_sequence, 42);
+        assert_eq!(raw.global_event_id, Some(GlobalEventId::new(0)));
+    }
 }
