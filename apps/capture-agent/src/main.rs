@@ -121,11 +121,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let pub_for_ipc = bus_pub.clone();
+    let global_seq_for_ipc = global_seq.clone();
     tokio::spawn(async move {
         while let Some(msg) = ipc_rx.recv().await {
             match msg {
                 IpcMessage::BrowserDomEvent(raw) => {
-                    let _ = pub_for_ipc.publish_event(*raw);
+                    let mut raw = *raw;
+                    if raw.global_event_id.as_u64() == 0 {
+                        raw.global_event_id = core_types::id::GlobalEventId::new(
+                            global_seq_for_ipc.fetch_add(1, Ordering::Relaxed),
+                        );
+                    }
+                    let _ = pub_for_ipc.publish_event(raw);
                 }
                 _ => {}
             }
