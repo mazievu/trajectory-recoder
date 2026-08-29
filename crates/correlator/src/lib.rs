@@ -16,10 +16,10 @@ mod tests {
     use core_types::action::{ActionParameters, ActionType};
     use core_types::event::{
         EventSource, RawEvent, RawEventPayload,
-        RawKeyboardEvent, RawMouseEvent,
+        RawKeyboardEvent, RawMouseEvent, RawWindowEvent,
     };
     use core_types::id::{GlobalEventId, SessionId};
-    use core_types::metadata::{MouseButton, Point2D, TargetMetadata};
+    use core_types::metadata::{BoundingRect, MouseButton, Point2D, TargetMetadata};
     use core_types::timestamp::DualTimestamp;
     use std::sync::atomic::AtomicU64;
     use std::sync::Arc;
@@ -133,6 +133,34 @@ mod tests {
         assert_eq!(actions.len(), 1);
         assert_eq!(actions[0].action_type, ActionType::Click);
         assert_eq!(actions[0].target.name.as_deref(), Some("Save"));
+    }
+
+    #[test]
+    fn window_move_does_not_emit_a_canonical_action() {
+        let global_seq = Arc::new(AtomicU64::new(100));
+        let mut engine = CorrelationEngine::new("sess_test", "user1", "mach1", global_seq);
+        let raw = RawEvent::new(
+            1,
+            GlobalEventId::new(100),
+            DualTimestamp::now(),
+            "mach1".to_string(),
+            1,
+            "user1".to_string(),
+            EventSource::WinEvent,
+            1,
+            RawEventPayload::Window(RawWindowEvent {
+                event_type: "MOVE".to_string(),
+                hwnd: 1,
+                pid: 100,
+                process_name: "notepad.exe".to_string(),
+                window_title: "Untitled - Notepad".to_string(),
+                bounds: BoundingRect::new(0, 0, 100, 100),
+                monitor_id: 1,
+                dpi: 96,
+            }),
+        );
+
+        assert!(engine.process_event(&raw, None).is_empty());
     }
 
     #[test]
