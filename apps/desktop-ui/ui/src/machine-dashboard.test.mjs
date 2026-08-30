@@ -2,8 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  DashboardAuthenticationError,
   fetchMachines,
   formatOnlineDuration,
+  loginDashboard,
   normalizeMachinesResponse,
 } from './machine-dashboard.mjs';
 
@@ -40,14 +42,12 @@ test('formats online duration without leaking implementation timestamps into the
   assert.equal(formatOnlineDuration(7265), '2h 1m');
 });
 
-test('uses only the dashboard credential when loading machine presence', async () => {
+test('uses the cookie-authenticated same-origin endpoint when loading machine presence', async () => {
   let requestedUrl;
-  let requestedHeaders;
-  const machines = await fetchMachines(
-    { apiUrl: 'https://trajectory.example', apiToken: 'dashboard-token' },
-    async (url, init) => {
+  let requestedOptions;
+  const machines = await fetchMachines(async (url, init) => {
       requestedUrl = url;
-      requestedHeaders = init.headers;
+      requestedOptions = init;
       return new Response(
         JSON.stringify([
           {
@@ -62,17 +62,34 @@ test('uses only the dashboard credential when loading machine presence', async (
         ]),
         { status: 200, headers: { 'content-type': 'application/json' } },
       );
-    },
-  );
+    });
 
-  assert.equal(requestedUrl, 'https://trajectory.example/api/v1/machines');
-  assert.deepEqual(requestedHeaders, { 'X-Server-Token': 'dashboard-token' });
+  assert.equal(requestedUrl, '/api/v1/machines');
+  assert.deepEqual(requestedOptions, { credentials: 'include' });
   assert.equal(machines[0].machineId, 'WS-01');
 });
 
-test('rejects a failed protected API response instead of showing fixture data', async () => {
+test('signals an unauthenticated dashboard session instead of showing fixture data', async () => {
   await assert.rejects(
-    () => fetchMachines({ apiUrl: 'https://trajectory.example', apiToken: 'dashboard-token' }, async () => new Response('', { status: 401 })),
-    /401/,
+    () => fetchMachines(async () => new Response('', { status: 401 })),
+    DashboardAuthenticationError,
   );
+});
+
+test('submits the operator password only to the same-origin login endpoint', async () => {
+  let requestedUrl;
+  let requestedOptions;
+  await loginDashboard('correct horse battery staple', async (url, init) => {
+    requestedUrl = url;
+    requestedOptions = init;
+    return new Response('', { status: 204 });
+  });
+
+  assert.equal(requestedUrl, '/api/v1/dashboard/login');
+  assert.deepEqual(requestedOptions, {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: 'correct horse battery staple' }),
+  });
 });
