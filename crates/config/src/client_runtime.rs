@@ -49,6 +49,8 @@ pub enum ClientRuntimeConfigError {
     WrongRole,
     #[error("TRAJECTORY_SERVER_URL must be an explicit non-loopback HTTPS endpoint")]
     UnsafeServerUrl,
+    #[error("SPOOL_DIR must be an absolute path")]
+    RelativeSpoolDir,
 }
 
 impl ClientRuntimeConfig {
@@ -124,11 +126,16 @@ impl ClientRuntimeConfig {
             return Err(ClientRuntimeConfigError::UnsafeServerUrl);
         }
 
+        let spool_dir = PathBuf::from(&values["SPOOL_DIR"]);
+        if !spool_dir.is_absolute() {
+            return Err(ClientRuntimeConfigError::RelativeSpoolDir);
+        }
+
         Ok(Self {
             server_url,
             machine_id: values["TRAJECTORY_MACHINE_ID"].clone(),
             user_id: values["TRAJECTORY_USER_ID"].clone(),
-            spool_dir: PathBuf::from(&values["SPOOL_DIR"]),
+            spool_dir,
             enrollment_token: optional_value(&values, "TRAJECTORY_ENROLLMENT_TOKEN"),
             device_token: optional_value(&values, "DEVICE_TOKEN"),
             device_token_path: optional_value(&values, "TRAJECTORY_DEVICE_TOKEN_PATH")

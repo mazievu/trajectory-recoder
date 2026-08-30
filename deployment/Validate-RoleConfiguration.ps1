@@ -80,6 +80,9 @@ switch ($ExpectedRole) {
         Require-Values -Values $values -Names @(
             'TRAJECTORY_SERVER_URL', 'TRAJECTORY_MACHINE_ID', 'TRAJECTORY_USER_ID', 'SPOOL_DIR'
         ) -Errors $errors
+        if ($values.ContainsKey('SPOOL_DIR') -and -not [string]::IsNullOrWhiteSpace($values['SPOOL_DIR']) -and -not [System.IO.Path]::IsPathRooted($values['SPOOL_DIR'])) {
+            $errors.Add('SPOOL_DIR must be an absolute path')
+        }
         Reject-Values -Values $values -Names @(
             'BIND_ADDR', 'DATABASE_URL', 'S3_ENDPOINT', 'S3_BUCKET', 'S3_REGION',
             'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'JWT_SECRET', 'ENROLLMENT_TOKEN',
@@ -88,7 +91,14 @@ switch ($ExpectedRole) {
 
         if ((-not $values.ContainsKey('DEVICE_TOKEN') -or [string]::IsNullOrWhiteSpace($values['DEVICE_TOKEN'])) -and
             (-not $values.ContainsKey('TRAJECTORY_ENROLLMENT_TOKEN') -or [string]::IsNullOrWhiteSpace($values['TRAJECTORY_ENROLLMENT_TOKEN']))) {
-            $errors.Add('A client requires DEVICE_TOKEN or TRAJECTORY_ENROLLMENT_TOKEN')
+            $credentialCachePath = if ($values.ContainsKey('TRAJECTORY_DEVICE_TOKEN_PATH') -and -not [string]::IsNullOrWhiteSpace($values['TRAJECTORY_DEVICE_TOKEN_PATH'])) {
+                $values['TRAJECTORY_DEVICE_TOKEN_PATH']
+            } else {
+                Join-Path $values['SPOOL_DIR'] 'device-token.dpapi'
+            }
+            if (-not (Test-Path -LiteralPath $credentialCachePath -PathType Leaf)) {
+                $errors.Add('A client requires DEVICE_TOKEN, TRAJECTORY_ENROLLMENT_TOKEN, or an existing DPAPI device-token cache')
+            }
         }
 
         if ($values.ContainsKey('TRAJECTORY_SERVER_URL') -and -not [string]::IsNullOrWhiteSpace($values['TRAJECTORY_SERVER_URL'])) {
