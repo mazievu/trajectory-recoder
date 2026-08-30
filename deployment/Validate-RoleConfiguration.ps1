@@ -104,7 +104,8 @@ switch ($ExpectedRole) {
     }
     'server' {
         Require-Values -Values $values -Names @(
-            'BIND_ADDR', 'DATABASE_URL', 'S3_ENDPOINT', 'S3_BUCKET', 'S3_REGION',
+            'BIND_ADDR', 'PUBLIC_HOSTNAME', 'TLS_CERT_PATH', 'TLS_KEY_PATH',
+            'DATABASE_URL', 'S3_ENDPOINT', 'S3_BUCKET', 'S3_REGION',
             'S3_ACCESS_KEY', 'S3_SECRET_KEY', 'JWT_SECRET', 'ENROLLMENT_TOKEN',
             'DASHBOARD_API_TOKEN',
             'POSTGRES_DB', 'POSTGRES_USER', 'POSTGRES_PASSWORD',
@@ -117,6 +118,9 @@ switch ($ExpectedRole) {
 
         if ($values.ContainsKey('BIND_ADDR') -and $values['BIND_ADDR'] -match '^(127\.0\.0\.1|localhost|\[::1\]):') {
             $errors.Add('BIND_ADDR must not be loopback when accepting remote clients')
+        }
+        if ($values.ContainsKey('PUBLIC_HOSTNAME') -and $values['PUBLIC_HOSTNAME'] -match '://|[/:\\\s]') {
+            $errors.Add('PUBLIC_HOSTNAME must be a hostname only, without scheme, path, port, or whitespace')
         }
         if ($values.ContainsKey('S3_ENDPOINT') -and -not [string]::IsNullOrWhiteSpace($values['S3_ENDPOINT'])) {
             $objectStoreUrl = $null

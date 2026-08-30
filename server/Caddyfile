@@ -1,0 +1,6 @@
+# TLS material is supplied by the deployment operator as read-only mounts. This
+# config never obtains certificates or stores private keys in the image/repo.
+https://{$PUBLIC_HOSTNAME} {
+	tls /etc/caddy/tls/tls.crt /etc/caddy/tls/tls.key
+	reverse_proxy server:8080
+}

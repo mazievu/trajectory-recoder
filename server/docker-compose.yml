@@ -8,8 +8,6 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
-    ports:
-      - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
@@ -44,10 +42,22 @@ services:
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
       ENROLLMENT_TOKEN: ${ENROLLMENT_TOKEN:?set ENROLLMENT_TOKEN}
       DASHBOARD_API_TOKEN: ${DASHBOARD_API_TOKEN:?set DASHBOARD_API_TOKEN}
-    ports:
-      - "8080:8080"
     depends_on:
       - postgres
+
+  proxy:
+    image: caddy:2.10-alpine
+    container_name: trajectory-proxy
+    environment:
+      PUBLIC_HOSTNAME: ${PUBLIC_HOSTNAME:?set PUBLIC_HOSTNAME}
+    ports:
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${TLS_CERT_PATH:?set TLS_CERT_PATH}:/etc/caddy/tls/tls.crt:ro
+      - ${TLS_KEY_PATH:?set TLS_KEY_PATH}:/etc/caddy/tls/tls.key:ro
+    depends_on:
+      - server
 
 volumes:
   pgdata:

@@ -23,7 +23,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File deployment/Validate-RoleConf
   -ConfigPath deployment/client.env -ExpectedRole client
 ```
 
-The server compose stack consumes the server file directly:
+The server compose stack exposes only the HTTPS proxy on port 443. PostgreSQL
+and the ingestion server are private Compose-network services; `/dashboard` and
+the ingestion API are both proxied by the same public hostname.
+
+Before starting it, obtain a certificate for `PUBLIC_HOSTNAME` and set
+`TLS_CERT_PATH` and `TLS_KEY_PATH` to operator-managed PEM files. The paths are
+read-only mounts; no private key is copied into the image or repository.
 
 ```powershell
 docker compose --env-file deployment/server.env -f server/docker-compose.yml up -d --build
@@ -32,6 +38,14 @@ docker compose --env-file deployment/server.env -f server/docker-compose.yml up 
 This starts the ingestion server and PostgreSQL. It requires an externally
 managed **HTTPS** S3-compatible object store in `S3_ENDPOINT`; it does not use
 the bundled MinIO container.
+
+### Certificate options
+
+The shipped compose path uses an operator-provided certificate/key. This works
+with internal PKI, a public CA, or a certificate acquired with ACME outside the
+stack. For public ACME, run the ACME client on the host or a separately reviewed
+edge proxy, renew the files in place, then reload the proxy. This stack does not
+expose port 80 or silently create an ACME account.
 
 `server/docker-compose.yml` contains a MinIO profile named `development-only`
 solely for local dependency experiments. It is excluded from the default stack
@@ -53,7 +67,16 @@ The launcher/runtime must reject a mismatch between its binary and
 - a server must require `DEPLOYMENT_ROLE=server` and the server storage/auth
   variables; it must not start the capture stack;
 - the client endpoint is the reverse-proxy HTTPS URL visible to client machines,
-  not the server's private Docker address or `BIND_ADDR`.
+  not the server's private Docker address or `BIND_ADDR`; it must match
+  `https://PUBLIC_HOSTNAME`.
 
 For a single-machine development demo only, use a separate development override;
 do not weaken this deployment contract.
+
+## Validation boundary
+
+The included checks validate role inputs, Compose interpolation, Caddyfile syntax,
+and that only the proxy publishes an application port. They cannot prove a
+certificate matches `PUBLIC_HOSTNAME`, that a certificate chain is trusted, DNS
+points at this host, port 443 is reachable, or ACME renewal works. Those require
+a real certificate, a routable domain, and an end-to-end deployment test.
