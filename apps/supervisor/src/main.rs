@@ -11,8 +11,79 @@ use spool::{
 };
 use std::path::{Path, PathBuf};
 use std::time::Duration;
+use tokio::process::{Child, Command};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
+
+fn uploader_companion_path(supervisor_executable: &Path) -> Result<PathBuf, String> {
+    let parent = supervisor_executable
+        .parent()
+        .ok_or_else(|| "supervisor executable has no parent directory".to_string())?;
+    Ok(parent.join("trajectory-uploader.exe"))
+}
+
+fn validate_uploader_child_config(
+    uploader_executable: &Path,
+    deployment_role: Option<&str>,
+) -> Result<(), String> {
+    let file_name = uploader_executable
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    if !file_name.eq_ignore_ascii_case("trajectory-uploader.exe") {
+        return Err("supervisor may only start its trajectory-uploader.exe companion".to_string());
+    }
+    if deployment_role.map(str::trim) != Some("client") {
+        return Err(
+            "DEPLOYMENT_ROLE=client is required before the supervisor starts uploader".to_string(),
+        );
+    }
+    Ok(())
+}
+
+async fn start_uploader_child() -> Result<Child, std::io::Error> {
+    let supervisor_executable = std::env::current_exe()?;
+    let uploader_executable =
+        uploader_companion_path(&supervisor_executable).map_err(std::io::Error::other)?;
+    validate_uploader_child_config(
+        &uploader_executable,
+        std::env::var("DEPLOYMENT_ROLE").ok().as_deref(),
+    )
+    .map_err(std::io::Error::other)?;
+    if !uploader_executable.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            format!(
+                "uploader companion is missing: {}",
+                uploader_executable.display()
+            ),
+        ));
+    }
+
+    // Do not launch trajectory-agent here: Session 0 cannot observe an
+    // interactive user's desktop. Its provisioning belongs to an interactive
+    // logon task, while uploader is safe to run as a headless child.
+    Command::new(uploader_executable)
+        .env("DEPLOYMENT_ROLE", "client")
+        .kill_on_drop(true)
+        .spawn()
+}
+
+async fn stop_uploader_child(child: &mut Child) {
+    match child.try_wait() {
+        Ok(Some(status)) => info!(%status, "Uploader child had already exited"),
+        Ok(None) => {
+            info!("Stopping uploader child process...");
+            if let Err(error) = child.kill().await {
+                warn!(%error, "Failed to terminate uploader child");
+            }
+            if let Err(error) = child.wait().await {
+                warn!(%error, "Failed to reap uploader child");
+            }
+        }
+        Err(error) => warn!(%error, "Failed to inspect uploader child state"),
+    }
+}
 
 /// Query disk space using Win32 `GetDiskFreeSpaceExW` on Windows or `sysinfo` fallback.
 /// Returns `(total_bytes, total_free_bytes, free_bytes_available_to_caller)`.
@@ -80,8 +151,35 @@ pub fn get_disk_free_space<P: AsRef<Path>>(path: P) -> Result<(u64, u64, u64), s
     }
 }
 
-/// Core supervisor background loop managing crash recovery, IPC server, and disk watermarks.
+/// Runs the production Session 0 supervisor and its headless uploader companion.
 pub async fn run_supervisor_loop(
+    spool_root: PathBuf,
+    cancel_token: CancellationToken,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut uploader = start_uploader_child().await?;
+    info!(pid = ?uploader.id(), "Started headless uploader companion");
+
+    let mut supervisor_loop = Box::pin(run_supervisor_loop_without_uploader(
+        spool_root,
+        cancel_token.clone(),
+    ));
+    let result = tokio::select! {
+        result = &mut supervisor_loop => result,
+        status = uploader.wait() => {
+            cancel_token.cancel();
+            match status {
+                Ok(status) => Err(std::io::Error::other(format!("uploader child exited unexpectedly with {status}")).into()),
+                Err(error) => Err(std::io::Error::other(format!("failed to wait for uploader child: {error}")).into()),
+            }
+        }
+    };
+    stop_uploader_child(&mut uploader).await;
+    result
+}
+
+/// Testable watchdog/IPC loop. Production must enter through `run_supervisor_loop`
+/// so the uploader is started and monitored.
+async fn run_supervisor_loop_without_uploader(
     spool_root: PathBuf,
     cancel_token: CancellationToken,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -266,7 +364,8 @@ mod tests {
     #[test]
     fn uploader_companion_must_be_a_sibling_client_executable() {
         let supervisor = Path::new(r"C:\\Program Files\\Trajectory\\trajectory-supervisor.exe");
-        let uploader = uploader_companion_path(supervisor).expect("supervisor has a parent directory");
+        let uploader =
+            uploader_companion_path(supervisor).expect("supervisor has a parent directory");
         assert_eq!(
             uploader,
             PathBuf::from(r"C:\\Program Files\\Trajectory\\trajectory-uploader.exe")
@@ -277,13 +376,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stopping_uploader_child_reaps_the_background_process() {
+        let mut child = Command::new("cmd")
+            .args(["/C", "ping 127.0.0.1 -n 30 >NUL"])
+            .spawn()
+            .expect("start a child process");
+        stop_uploader_child(&mut child).await;
+        assert!(child.try_wait().unwrap().is_some());
+    }
+
+    #[tokio::test]
     async fn test_supervisor_loop_cancellation() {
         let temp_dir = tempfile::tempdir().expect("create tempdir");
         let spool_root = temp_dir.path().to_path_buf();
         let cancel_token = CancellationToken::new();
 
         let ct = cancel_token.clone();
-        let handle = tokio::spawn(async move { run_supervisor_loop(spool_root, ct).await });
+        let handle =
+            tokio::spawn(async move { run_supervisor_loop_without_uploader(spool_root, ct).await });
 
         // Let the loop start, then cancel
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -362,7 +472,9 @@ mod tests {
         let ct = cancel_token.clone();
         let spool_root_clone = spool_root.clone();
 
-        let handle = tokio::spawn(async move { run_supervisor_loop(spool_root_clone, ct).await });
+        let handle = tokio::spawn(async move {
+            run_supervisor_loop_without_uploader(spool_root_clone, ct).await
+        });
 
         // Give the loop time to run startup crash scan
         tokio::time::sleep(Duration::from_millis(150)).await;
