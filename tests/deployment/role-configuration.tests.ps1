@@ -33,5 +33,6 @@ Assert-ValidationPasses -ConfigName 'server-valid.env' -ExpectedRole 'server'
 Assert-ValidationFails -ConfigName 'client-missing-server-url.env' -ExpectedRole 'client'
 Assert-ValidationFails -ConfigName 'client-loopback-server-url.env' -ExpectedRole 'client'
 Assert-ValidationFails -ConfigName 'server-with-client-role.env' -ExpectedRole 'server'
+Assert-ValidationFails -ConfigName 'server-missing-tls.env' -ExpectedRole 'server'
 
 Write-Host 'Role configuration contract tests passed.'
