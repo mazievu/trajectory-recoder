@@ -374,5 +374,14 @@ mod tests {
             accepted.spool_dir,
             PathBuf::from(r"C:\\ProgramData\\TrajectoryRecorder\\spool")
         );
+
+        let relative_spool = ClientRuntimeConfig::from_pairs([
+            ("DEPLOYMENT_ROLE", "client"),
+            ("TRAJECTORY_SERVER_URL", "https://collector.example.test"),
+            ("TRAJECTORY_MACHINE_ID", "MACHINE-01"),
+            ("TRAJECTORY_USER_ID", "operator-01"),
+            ("SPOOL_DIR", "spool"),
+        ]);
+        assert!(relative_spool.is_err());
     }
 }
