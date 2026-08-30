@@ -15,6 +15,12 @@ use tokio::process::{Child, Command};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
+pub(crate) fn configured_spool_root() -> PathBuf {
+    std::env::var("SPOOL_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("spool"))
+}
+
 fn uploader_companion_path(supervisor_executable: &Path) -> Result<PathBuf, String> {
     let parent = supervisor_executable
         .parent()
@@ -323,7 +329,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     info!("Starting Trajectory Supervisor in interactive console mode...");
-    let spool_root = PathBuf::from("spool");
+    let spool_root = configured_spool_root();
     let cancel_token = CancellationToken::new();
 
     let ct_clone = cancel_token.clone();

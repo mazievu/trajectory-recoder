@@ -87,7 +87,7 @@ fn supervisor_service_main(_args: Vec<OsString>) {
         }
     };
 
-    let spool_root = PathBuf::from("spool");
+    let spool_root = crate::configured_spool_root();
     info!(
         "Windows Service loop starting with spool root {:?}",
         spool_root
