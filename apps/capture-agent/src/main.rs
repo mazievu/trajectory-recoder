@@ -3,6 +3,7 @@
 //! correlation engine, NDJSON & SQLite WAL persistence, and Named Pipe IPC server.
 
 use clipboard_win::ClipboardManager;
+use config::{ClientRuntimeConfig, default_client_config_path};
 use core_types::event::RawEventPayload;
 use core_types::metadata::TargetMetadata;
 use correlator::CorrelationEngine;
@@ -28,11 +29,11 @@ struct RuntimeIdentity {
 }
 
 impl RuntimeIdentity {
-    fn from_env() -> Result<Self, String> {
-        Self::from_values(
-            std::env::var("TRAJECTORY_MACHINE_ID").ok(),
-            std::env::var("TRAJECTORY_USER_ID").ok(),
-        )
+    fn from_config(config: &ClientRuntimeConfig) -> Self {
+        Self {
+            machine_id: config.machine_id.clone(),
+            user_id: config.user_id.clone(),
+        }
     }
 
     fn from_values(machine_id: Option<String>, user_id: Option<String>) -> Result<Self, String> {
@@ -55,6 +56,31 @@ impl RuntimeIdentity {
             user_id,
         })
     }
+}
+
+fn capture_config_path(args: &[String]) -> Result<PathBuf, String> {
+    let mut path = None;
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--config" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .filter(|value| !value.trim().is_empty())
+                    .ok_or_else(|| "--config requires a client.env path".to_string())?;
+                if path.replace(PathBuf::from(value)).is_some() {
+                    return Err("--config may only be provided once".to_string());
+                }
+            }
+            "--help" | "-h" => {
+                return Err("Usage: trajectory-agent [--config C:\\ProgramData\\TrajectoryRecorder\\client.env]".to_string());
+            }
+            other => return Err(format!("unknown capture-agent argument: {other}")),
+        }
+        index += 1;
+    }
+    Ok(path.unwrap_or_else(default_client_config_path))
 }
 
 /// The only events that warrant an expensive UI Automation lookup.
@@ -103,7 +129,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _guard = init_diagnostics(&DiagnosticsConfig::default());
     info!("Starting Trajectory Desktop Capture Agent (Edition 2024)...");
 
-    let identity = RuntimeIdentity::from_env()?;
+    let args: Vec<String> = std::env::args().collect();
+    let config_path = capture_config_path(&args)?;
+    let runtime_config = ClientRuntimeConfig::from_file(&config_path)?;
+    let identity = RuntimeIdentity::from_config(&runtime_config);
     let machine_id = identity.machine_id.as_str();
     let user_id = identity.user_id.as_str();
     let windows_session_id = 1u32;
@@ -115,7 +144,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bus_recv = event_bus.receiver();
 
     // 2. Initialize Spool & Session Persistence
-    let spool_root = PathBuf::from("spool");
+    let spool_root = runtime_config.spool_dir.clone();
     let global_id_allocator = session::GlobalEventIdAllocator::new(&spool_root)?;
     let global_seq = global_id_allocator.current_atomic();
 

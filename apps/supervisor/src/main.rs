@@ -3,6 +3,7 @@
 
 pub mod service;
 
+use config::{ClientRuntimeConfig, default_client_config_path};
 use diagnostics::{DiagnosticsConfig, init_diagnostics};
 use ipc::{IpcMessage, IpcServer};
 use session::scan_and_recover_orphaned_sessions;
@@ -14,12 +15,6 @@ use std::time::Duration;
 use tokio::process::{Child, Command};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
-
-pub(crate) fn configured_spool_root() -> PathBuf {
-    std::env::var("SPOOL_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("spool"))
-}
 
 fn uploader_companion_path(supervisor_executable: &Path) -> Result<PathBuf, String> {
     let parent = supervisor_executable
@@ -47,15 +42,12 @@ fn validate_uploader_child_config(
     Ok(())
 }
 
-async fn start_uploader_child() -> Result<Child, std::io::Error> {
+async fn start_uploader_child(runtime: &ClientRuntimeConfig) -> Result<Child, std::io::Error> {
     let supervisor_executable = std::env::current_exe()?;
     let uploader_executable =
         uploader_companion_path(&supervisor_executable).map_err(std::io::Error::other)?;
-    validate_uploader_child_config(
-        &uploader_executable,
-        std::env::var("DEPLOYMENT_ROLE").ok().as_deref(),
-    )
-    .map_err(std::io::Error::other)?;
+    validate_uploader_child_config(&uploader_executable, Some("client"))
+        .map_err(std::io::Error::other)?;
     if !uploader_executable.is_file() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -70,7 +62,8 @@ async fn start_uploader_child() -> Result<Child, std::io::Error> {
     // interactive user's desktop. Its provisioning belongs to an interactive
     // logon task, while uploader is safe to run as a headless child.
     Command::new(uploader_executable)
-        .env("DEPLOYMENT_ROLE", "client")
+        .env_clear()
+        .envs(runtime.child_environment())
         .kill_on_drop(true)
         .spawn()
 }
@@ -159,14 +152,14 @@ pub fn get_disk_free_space<P: AsRef<Path>>(path: P) -> Result<(u64, u64, u64), s
 
 /// Runs the production Session 0 supervisor and its headless uploader companion.
 pub async fn run_supervisor_loop(
-    spool_root: PathBuf,
+    runtime: ClientRuntimeConfig,
     cancel_token: CancellationToken,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut uploader = start_uploader_child().await?;
+    let mut uploader = start_uploader_child(&runtime).await?;
     info!(pid = ?uploader.id(), "Started headless uploader companion");
 
     let mut supervisor_loop = Box::pin(run_supervisor_loop_without_uploader(
-        spool_root,
+        runtime.spool_dir.clone(),
         cancel_token.clone(),
     ));
     let result = tokio::select! {
@@ -292,44 +285,89 @@ async fn run_supervisor_loop_without_uploader(
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SupervisorMode {
+    Console,
+    InstallService,
+    UninstallService,
+    RunService,
+    Help,
+}
+
+fn parse_supervisor_args(args: &[String]) -> Result<(SupervisorMode, PathBuf), String> {
+    let mut mode = SupervisorMode::Console;
+    let mut config_path = None;
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--config" => {
+                index += 1;
+                let value = args
+                    .get(index)
+                    .filter(|value| !value.trim().is_empty())
+                    .ok_or_else(|| "--config requires a client.env path".to_string())?;
+                if config_path.replace(PathBuf::from(value)).is_some() {
+                    return Err("--config may only be provided once".to_string());
+                }
+            }
+            "--install-service" => mode = set_mode(mode, SupervisorMode::InstallService)?,
+            "--uninstall-service" => mode = set_mode(mode, SupervisorMode::UninstallService)?,
+            "--run-service" => mode = set_mode(mode, SupervisorMode::RunService)?,
+            "--console" => mode = set_mode(mode, SupervisorMode::Console)?,
+            "--help" | "-h" => mode = set_mode(mode, SupervisorMode::Help)?,
+            other => return Err(format!("unknown supervisor argument: {other}")),
+        }
+        index += 1;
+    }
+    Ok((mode, config_path.unwrap_or_else(default_client_config_path)))
+}
+
+fn set_mode(current: SupervisorMode, requested: SupervisorMode) -> Result<SupervisorMode, String> {
+    if current != SupervisorMode::Console && current != requested {
+        return Err("only one supervisor mode may be selected".to_string());
+    }
+    Ok(requested)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _guard = init_diagnostics(&DiagnosticsConfig::default());
 
     let args: Vec<String> = std::env::args().collect();
-    if args.len() > 1 {
-        match args[1].as_str() {
-            "--install-service" => {
-                info!("Installing Trajectory Supervisor Windows Service...");
-                service::install_service(None)?;
-                info!("Service installed successfully.");
-                return Ok(());
-            }
-            "--uninstall-service" => {
-                info!("Uninstalling Trajectory Supervisor Windows Service...");
-                service::uninstall_service()?;
-                info!("Service uninstalled successfully.");
-                return Ok(());
-            }
-            "--run-service" => {
-                info!("Running as Windows Service under SCM...");
-                service::run_service()?;
-                return Ok(());
-            }
-            "--help" | "-h" => {
-                println!("Trajectory Supervisor Options:");
-                println!("  --install-service    Install as Windows Service");
-                println!("  --uninstall-service  Uninstall Windows Service");
-                println!("  --run-service        Run under Service Control Manager");
-                println!("  --console            Run in interactive console mode (default)");
-                return Ok(());
-            }
-            _ => {}
+    let (mode, config_path) = parse_supervisor_args(&args)?;
+    match mode {
+        SupervisorMode::Help => {
+            println!("Trajectory Supervisor Options:");
+            println!(
+                "  --config <path>      Explicit client.env path (default: ProgramData client.env)"
+            );
+            println!("  --install-service    Install as Windows Service");
+            println!("  --uninstall-service  Uninstall Windows Service");
+            println!("  --run-service        Run under Service Control Manager");
+            println!("  --console            Run in interactive console mode (default)");
+            return Ok(());
         }
+        SupervisorMode::UninstallService => {
+            info!("Uninstalling Trajectory Supervisor Windows Service...");
+            service::uninstall_service()?;
+            return Ok(());
+        }
+        SupervisorMode::InstallService => {
+            ClientRuntimeConfig::from_file(&config_path)?;
+            info!(config = %config_path.display(), "Installing Trajectory Supervisor Windows Service...");
+            service::install_service(None, config_path)?;
+            return Ok(());
+        }
+        SupervisorMode::RunService => {
+            info!(config = %config_path.display(), "Running as Windows Service under SCM...");
+            service::run_service(config_path)?;
+            return Ok(());
+        }
+        SupervisorMode::Console => {}
     }
 
-    info!("Starting Trajectory Supervisor in interactive console mode...");
-    let spool_root = configured_spool_root();
+    let runtime_config = ClientRuntimeConfig::from_file(&config_path)?;
+    info!(config = %config_path.display(), "Starting Trajectory Supervisor in interactive console mode...");
     let cancel_token = CancellationToken::new();
 
     let ct_clone = cancel_token.clone();
@@ -340,7 +378,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    if let Err(e) = run_supervisor_loop(spool_root, cancel_token).await {
+    if let Err(e) = run_supervisor_loop(runtime_config, cancel_token).await {
         error!("Supervisor terminated with error: {}", e);
     }
 
@@ -394,7 +432,10 @@ mod tests {
 
         let config = ClientRuntimeConfig::from_file(&config_path).unwrap();
         assert_eq!(config.machine_id, "MACHINE-01");
-        assert_eq!(config.spool_dir, PathBuf::from(r"C:\\ProgramData\\TrajectoryRecorder\\spool"));
+        assert_eq!(
+            config.spool_dir,
+            PathBuf::from(r"C:\\ProgramData\\TrajectoryRecorder\\spool")
+        );
     }
 
     #[tokio::test]

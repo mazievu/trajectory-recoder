@@ -73,6 +73,32 @@ The launcher/runtime must reject a mismatch between its binary and
 For a single-machine development demo only, use a separate development override;
 do not weaken this deployment contract.
 
+## Interactive capture launcher (Windows client)
+
+`trajectory-supervisor` and `trajectory-uploader` are Session 0 processes. The
+capture agent must not be started there: Windows input hooks and UI Automation
+would observe Session 0, not the signed-in employee's desktop.
+
+After placing the signed client binaries and the validated `client.env` on a
+Windows client, install the per-user launcher while signed in as that user:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File deployment/Install-InteractiveCaptureTask.ps1 `
+  -ConfigPath C:\ProgramData\TrajectoryRecorder\client.env `
+  -InstallDirectory 'C:\Program Files\TrajectoryRecorder' `
+  -UserId 'CONTOSO\operator' `
+  -ChromeExtensionId '<32-character-production-extension-id>'
+```
+
+The script creates an `InteractiveToken` logon task for `trajectory-agent.exe`.
+It also registers an HKCU native-messaging manifest restricted to the supplied
+extension ID. Chrome/Edge launches `trajectory-browser-host.exe` on demand via
+native messaging; it is intentionally **not** a scheduled Session 0 process.
+
+This is a per-user installation boundary. A generic all-user launcher requires
+an organisation-specific account-provisioning policy and an extension ID; the
+installer therefore requires both explicitly instead of guessing either.
+
 ## Validation boundary
 
 The included checks validate role inputs, Compose interpolation, Caddyfile syntax,

@@ -2,6 +2,7 @@
 
 use std::ffi::OsString;
 use std::path::PathBuf;
+use std::sync::OnceLock;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
@@ -10,11 +11,16 @@ pub const SERVICE_NAME: &str = "TrajectorySupervisor";
 pub const SERVICE_DISPLAY_NAME: &str = "Trajectory Recorder Supervisor";
 pub const SERVICE_DESCRIPTION: &str = "Session 0 Supervisor for Trajectory Recorder, managing crash recovery, spool watchdog, and IPC heartbeats.";
 
+static SERVICE_CONFIG_PATH: OnceLock<PathBuf> = OnceLock::new();
+
 #[cfg(windows)]
 windows_service::define_windows_service!(ffi_service_main, supervisor_service_main);
 
 #[cfg(windows)]
-pub fn run_service() -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_service(config_path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+    SERVICE_CONFIG_PATH
+        .set(config_path)
+        .map_err(|_| "Windows Service configuration was already initialized")?;
     info!(
         "Registering Windows Service dispatcher for {}...",
         SERVICE_NAME
@@ -24,7 +30,7 @@ pub fn run_service() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[cfg(not(windows))]
-pub fn run_service() -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_service(_config_path: PathBuf) -> Result<(), Box<dyn std::error::Error>> {
     Err("Windows Service dispatcher is only supported on Windows platforms".into())
 }
 
@@ -87,13 +93,28 @@ fn supervisor_service_main(_args: Vec<OsString>) {
         }
     };
 
-    let spool_root = crate::configured_spool_root();
+    let config_path = match SERVICE_CONFIG_PATH.get() {
+        Some(path) => path,
+        None => {
+            error!("Windows Service started without an explicit client configuration path");
+            return;
+        }
+    };
+    let runtime_config = match config::ClientRuntimeConfig::from_file(config_path) {
+        Ok(config) => config,
+        Err(error) => {
+            error!(config = %config_path.display(), %error, "Failed to load client configuration");
+            return;
+        }
+    };
     info!(
-        "Windows Service loop starting with spool root {:?}",
-        spool_root
+        config = %config_path.display(),
+        spool = %runtime_config.spool_dir.display(),
+        "Windows Service loop starting with explicit client configuration"
     );
 
-    let result = rt.block_on(async { crate::run_supervisor_loop(spool_root, cancel_token).await });
+    let result =
+        rt.block_on(async { crate::run_supervisor_loop(runtime_config, cancel_token).await });
 
     if let Err(e) = result {
         error!(
@@ -118,7 +139,10 @@ fn supervisor_service_main(_args: Vec<OsString>) {
 }
 
 #[cfg(windows)]
-pub fn install_service(exe_path: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn install_service(
+    exe_path: Option<PathBuf>,
+    config_path: PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
     use std::env;
     use windows_service::service::{
         ServiceAccess, ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceType,
@@ -139,7 +163,11 @@ pub fn install_service(exe_path: Option<PathBuf>) -> Result<(), Box<dyn std::err
         start_type: ServiceStartType::AutoStart,
         error_control: ServiceErrorControl::Normal,
         executable_path: path,
-        launch_arguments: vec![OsString::from("--run-service")],
+        launch_arguments: vec![
+            OsString::from("--run-service"),
+            OsString::from("--config"),
+            config_path.into_os_string(),
+        ],
         dependencies: vec![],
         account_name: None, // Runs as LocalSystem in Session 0
         account_password: None,
@@ -152,7 +180,10 @@ pub fn install_service(exe_path: Option<PathBuf>) -> Result<(), Box<dyn std::err
 }
 
 #[cfg(not(windows))]
-pub fn install_service(_exe_path: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
+pub fn install_service(
+    _exe_path: Option<PathBuf>,
+    _config_path: PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
     Err("Service installation is only supported on Windows".into())
 }
 

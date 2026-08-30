@@ -1,11 +1,15 @@
 //! Configuration schemas, default settings, validation rules, and live reload manager.
 
+pub mod client_runtime;
 pub mod defaults;
 pub mod manager;
 pub mod schema;
 pub mod validation;
 pub mod watcher;
 
+pub use client_runtime::{
+    ClientRuntimeConfig, ClientRuntimeConfigError, default_client_config_path,
+};
 pub use defaults::default_recorder_config;
 pub use manager::{ConfigError, ConfigManager};
 pub use schema::{
