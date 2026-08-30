@@ -247,6 +247,46 @@ async fn dashboard_session_cookie_allows_machine_reads_without_exposing_the_dash
 }
 
 #[tokio::test]
+async fn dashboard_login_exchanges_a_user_entered_password_for_a_secure_session_cookie() {
+    let state = AppState::new_in_memory();
+    let app = create_router(state.clone());
+
+    let rejected = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/dashboard/login")
+                .header("Content-Type", "application/json")
+                .body(Body::from(r#"{"password":"incorrect"}"#))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), StatusCode::UNAUTHORIZED);
+
+    let accepted = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/dashboard/login")
+                .header("Content-Type", "application/json")
+                .body(Body::from(
+                    serde_json::json!({ "password": state.server_api_token }).to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(accepted.status(), StatusCode::NO_CONTENT);
+    let set_cookie = accepted.headers().get("Set-Cookie").unwrap().to_str().unwrap();
+    assert!(set_cookie.contains("trajectory_dashboard_session="));
+    assert!(set_cookie.contains("HttpOnly"));
+    assert!(set_cookie.contains("Secure"));
+    assert!(set_cookie.contains("SameSite=Strict"));
+}
+
+#[tokio::test]
 async fn session_initiation_requires_a_machine_jwt_and_rejects_spoofed_machine_id() {
     let state = AppState::new_in_memory();
     let app = create_router(state.clone());
