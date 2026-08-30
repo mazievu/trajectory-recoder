@@ -263,6 +263,19 @@ mod tests {
         assert!(total_free <= total, "Free bytes must be <= total bytes");
     }
 
+    #[test]
+    fn uploader_companion_must_be_a_sibling_client_executable() {
+        let supervisor = Path::new(r"C:\\Program Files\\Trajectory\\trajectory-supervisor.exe");
+        let uploader = uploader_companion_path(supervisor).expect("supervisor has a parent directory");
+        assert_eq!(
+            uploader,
+            PathBuf::from(r"C:\\Program Files\\Trajectory\\trajectory-uploader.exe")
+        );
+        assert!(validate_uploader_child_config(&uploader, Some("server")).is_err());
+        assert!(validate_uploader_child_config(&uploader, Some("client")).is_ok());
+        assert!(validate_uploader_child_config(Path::new("other.exe"), Some("client")).is_err());
+    }
+
     #[tokio::test]
     async fn test_supervisor_loop_cancellation() {
         let temp_dir = tempfile::tempdir().expect("create tempdir");
