@@ -27,6 +27,36 @@ struct RuntimeIdentity {
     user_id: String,
 }
 
+impl RuntimeIdentity {
+    fn from_env() -> Result<Self, String> {
+        Self::from_values(
+            std::env::var("TRAJECTORY_MACHINE_ID").ok(),
+            std::env::var("TRAJECTORY_USER_ID").ok(),
+        )
+    }
+
+    fn from_values(machine_id: Option<String>, user_id: Option<String>) -> Result<Self, String> {
+        let machine_id = machine_id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                "TRAJECTORY_MACHINE_ID is required; refusing an un-enrolled capture client"
+                    .to_string()
+            })?;
+        let user_id = user_id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                "TRAJECTORY_USER_ID is required; refusing to record an unidentified user"
+                    .to_string()
+            })?;
+        Ok(Self {
+            machine_id,
+            user_id,
+        })
+    }
+}
+
 /// The only events that warrant an expensive UI Automation lookup.
 /// Mouse movement is intentionally excluded: it is transport noise, not a
 /// user action. Keyboard and foreground events use the focused element because
@@ -73,8 +103,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _guard = init_diagnostics(&DiagnosticsConfig::default());
     info!("Starting Trajectory Desktop Capture Agent (Edition 2024)...");
 
-    let machine_id = "WORKSTATION-01";
-    let user_id = "user_primary";
+    let identity = RuntimeIdentity::from_env()?;
+    let machine_id = identity.machine_id.as_str();
+    let user_id = identity.user_id.as_str();
     let windows_session_id = 1u32;
     let is_running = Arc::new(AtomicBool::new(true));
 
@@ -133,10 +164,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match msg {
                 IpcMessage::BrowserDomEvent(raw) => {
                     let mut raw = *raw;
-                    if raw
-                        .global_event_id
-                        .is_none_or(|id| id.as_u64() == 0)
-                    {
+                    if raw.global_event_id.is_none_or(|id| id.as_u64() == 0) {
                         raw.global_event_id = Some(core_types::id::GlobalEventId::new(
                             global_seq_for_ipc.fetch_add(1, Ordering::Relaxed),
                         ));

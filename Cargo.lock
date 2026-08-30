@@ -4035,6 +4035,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "upload-client",
+ "windows 0.58.0",
 ]
 
 [[package]]

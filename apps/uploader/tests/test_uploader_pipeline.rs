@@ -3,7 +3,7 @@ use server::{AppState, create_router};
 use spool::{SpoolDirectoryManager, SpoolState};
 use tempfile::tempdir;
 use tokio::net::TcpListener;
-use upload_client::{InitiateSessionRequest, UploadClient};
+use upload_client::{InitiateSessionRequest, RegisterMachineRequest, UploadClient};
 
 async fn start_server() -> (String, AppState) {
     let state = AppState::new_in_memory();
@@ -22,7 +22,17 @@ async fn start_server() -> (String, AppState) {
 #[tokio::test]
 async fn test_uploader_end_to_end_pipeline() {
     let (server_url, server_state) = start_server().await;
-    let client = UploadClient::new(&server_url);
+    let mut client = UploadClient::new(&server_url);
+    let registration = client
+        .register_machine(&RegisterMachineRequest {
+            machine_id: "MACH_TEST".to_string(),
+            hostname: "uploader-test".to_string(),
+            os_version: "Windows test".to_string(),
+            registration_token: server_state.enrollment_token.clone(),
+        })
+        .await
+        .unwrap();
+    client.set_device_token(registration.device_jwt);
 
     let dir = tempdir().unwrap();
     let spool_mgr = SpoolDirectoryManager::new(dir.path()).unwrap();

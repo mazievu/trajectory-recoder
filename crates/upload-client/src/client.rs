@@ -65,7 +65,7 @@ pub struct RegisterMachineRequest {
 pub struct RegisterMachineResponse {
     #[serde(default)]
     pub status: String,
-    #[serde(alias = "token", alias = "device_token")]
+    #[serde(alias = "device_token")]
     pub device_jwt: String,
     #[serde(default)]
     pub machine_id: Option<String>,
