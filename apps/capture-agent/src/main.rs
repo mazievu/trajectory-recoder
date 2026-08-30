@@ -21,6 +21,12 @@ use tracing::{error, info};
 use uia_win::inspector::UiaInspector;
 use window_win::tracker::WindowTracker;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RuntimeIdentity {
+    machine_id: String,
+    user_id: String,
+}
+
 /// The only events that warrant an expensive UI Automation lookup.
 /// Mouse movement is intentionally excluded: it is transport noise, not a
 /// user action. Keyboard and foreground events use the focused element because
@@ -271,5 +277,19 @@ mod tests {
             ..Default::default()
         });
         assert_eq!(uia_lookup_request(&key_up), None);
+    }
+
+    #[test]
+    fn runtime_identity_requires_enrolled_machine_and_user_ids() {
+        assert!(RuntimeIdentity::from_values(None, Some("operator-01".to_string())).is_err());
+        assert!(RuntimeIdentity::from_values(Some("MACHINE-01".to_string()), None).is_err());
+
+        let identity = RuntimeIdentity::from_values(
+            Some("MACHINE-01".to_string()),
+            Some("operator-01".to_string()),
+        )
+        .expect("enrollment identity should be accepted");
+        assert_eq!(identity.machine_id, "MACHINE-01");
+        assert_eq!(identity.user_id, "operator-01");
     }
 }

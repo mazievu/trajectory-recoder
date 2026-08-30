@@ -9,6 +9,18 @@ use std::time::Duration;
 use tracing::{error, info, warn};
 use upload_client::{InitiateSessionRequest, UploadClient};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RuntimeRole {
+    Client,
+    Server,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ClientRuntimeConfig {
+    server_url: String,
+    machine_id: String,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _guard = init_diagnostics(&DiagnosticsConfig::default());
@@ -272,4 +284,56 @@ fn find_chunk_path(chunks_dir: &Path, chunk_index: usize, file_name: &str) -> Pa
         return p_04;
     }
     direct
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn client_runtime_requires_an_explicit_server_endpoint() {
+        let err = ClientRuntimeConfig::from_values(None, Some("MACHINE-01".to_string()))
+            .expect_err("a client must never guess a server endpoint");
+        assert!(err.contains("TRAJECTORY_SERVER_URL"));
+    }
+
+    #[test]
+    fn client_runtime_rejects_plain_http_to_non_loopback_hosts() {
+        let err = ClientRuntimeConfig::from_values(
+            Some("http://collector.internal:8080".to_string()),
+            Some("MACHINE-01".to_string()),
+        )
+        .expect_err("remote telemetry must not use plaintext HTTP");
+        assert!(err.contains("HTTPS"));
+    }
+
+    #[test]
+    fn client_runtime_accepts_https_and_strips_trailing_slash() {
+        let config = ClientRuntimeConfig::from_values(
+            Some("https://collector.example.test/".to_string()),
+            Some("MACHINE-01".to_string()),
+        )
+        .expect("explicit HTTPS collector is a valid client target");
+        assert_eq!(config.server_url, "https://collector.example.test");
+        assert_eq!(config.machine_id, "MACHINE-01");
+    }
+
+    #[test]
+    fn executable_name_defaults_to_its_safe_runtime_role() {
+        assert_eq!(
+            resolve_runtime_role(None, Path::new("trajectory-uploader.exe")).unwrap(),
+            RuntimeRole::Client
+        );
+        assert_eq!(
+            resolve_runtime_role(None, Path::new("trajectory-server.exe")).unwrap(),
+            RuntimeRole::Server
+        );
+    }
+
+    #[test]
+    fn client_executable_refuses_a_server_role_override() {
+        assert!(resolve_runtime_role(Some("server"), Path::new("trajectory-uploader.exe")).is_err());
+        assert!(resolve_runtime_role(Some("unknown"), Path::new("trajectory-uploader.exe")).is_err());
+    }
 }
