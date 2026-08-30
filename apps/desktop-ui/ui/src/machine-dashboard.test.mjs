@@ -15,8 +15,9 @@ test('normalizes the protected machines endpoint response for the dashboard', ()
         hostname: 'finance-laptop',
         os_version: 'Windows 11',
         last_seen_at: '2026-08-30T10:00:00Z',
-        online_seconds: 7265,
-        status: 'online',
+        online_duration_secs: 7265,
+        status: 'ACTIVE',
+        is_online: true,
       },
     ],
   });
@@ -54,8 +55,9 @@ test('uses only the dashboard credential when loading machine presence', async (
             hostname: 'finance-laptop',
             os_version: 'Windows 11',
             last_seen_at: '2026-08-30T10:00:00Z',
-            online_seconds: 1,
-            status: 'online',
+            online_duration_secs: 1,
+            status: 'ACTIVE',
+            is_online: true,
           },
         ]),
         { status: 200, headers: { 'content-type': 'application/json' } },
@@ -64,7 +66,7 @@ test('uses only the dashboard credential when loading machine presence', async (
   );
 
   assert.equal(requestedUrl, 'https://trajectory.example/api/v1/machines');
-  assert.deepEqual(requestedHeaders, { Authorization: 'Bearer dashboard-token' });
+  assert.deepEqual(requestedHeaders, { 'X-Server-Token': 'dashboard-token' });
   assert.equal(machines[0].machineId, 'WS-01');
 });
 
