@@ -1,0 +1,9 @@
+.git
+.agents
+target
+target-*
+node_modules
+**/node_modules
+spool
+logs
+*.pdb

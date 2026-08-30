@@ -8,7 +8,7 @@
 
 ## Table of Contents
 1. [Developer Setup & Toolchain Configuration](#1-developer-setup--toolchain-configuration)
-2. [Local Infrastructure: PostgreSQL & MinIO](#2-local-infrastructure-postgresql--minio)
+2. [Local Dependency Containers: PostgreSQL & MinIO](#2-local-dependency-containers-postgresql--minio)
 3. [Building & Running Components](#3-building--running-components)
 4. [Testing Framework & Test Fixture (`trajectory-harness.exe`)](#4-testing-framework--test-fixture-trajectory-harnessexe)
 5. [Database Migrations](#5-database-migrations)
@@ -31,7 +31,7 @@
      rustup update
      ```
    - The workspace specifies `edition = "2024"` and `rust-version = "1.85.0"`.
-4. **Docker & Docker Compose**: For running local PostgreSQL and MinIO instances.
+4. **Docker & Docker Compose**: Optional, for local PostgreSQL and MinIO dependency containers only. They are not a production deployment.
 
 ### 1.2 Repository Structure
 ```
@@ -71,13 +71,15 @@ trajectory-recorder/
 
 ---
 
-## 2. Local Infrastructure: PostgreSQL & MinIO
+## 2. Local Dependency Containers: PostgreSQL & MinIO
 
-The workspace provides a `docker-compose.yml` to spin up local database and object storage dependencies:
+The optional MinIO service is for local dependency experiments only. It exposes
+plaintext S3 and must not be used as a production object-store endpoint. The
+production server rejects non-HTTPS `S3_ENDPOINT` values.
 
 ```bash
-# Start PostgreSQL 16 and MinIO in the background
-docker compose -f server/docker-compose.yml up -d
+# Start only local dependency containers. This is not a production server start.
+docker compose -f server/docker-compose.yml --profile development-only up -d postgres minio
 
 # Verify container status
 docker compose -f server/docker-compose.yml ps
@@ -92,14 +94,21 @@ cp server/.env.example server/.env
 Default contents:
 ```ini
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/trajectory_db
-S3_ENDPOINT=http://localhost:9000
+S3_ENDPOINT=https://s3-for-local-testing.example.test
 S3_BUCKET=trajectory-archives
 S3_REGION=us-east-1
-S3_ACCESS_KEY=minioadmin
-S3_SECRET_KEY=minioadmin
-JWT_SECRET=dev_secret_key_change_in_production_32_chars_long
+S3_ACCESS_KEY=local-test-access-key
+S3_SECRET_KEY=local-test-secret-key
+JWT_SECRET=local-test-jwt-secret-change-before-use
+ENROLLMENT_TOKEN=local-test-enrollment-token
+DASHBOARD_API_TOKEN=local-test-dashboard-token-distinct-from-client-tokens
+DEPLOYMENT_ROLE=server
 BIND_ADDR=0.0.0.0:8080
 ```
+
+For a deployable server configuration, use
+[`deployment/server.env.example`](../deployment/server.env.example) and validate it
+with [`deployment/Validate-RoleConfiguration.ps1`](../deployment/Validate-RoleConfiguration.ps1).
 
 ---
 
@@ -127,7 +136,9 @@ cargo build --workspace --release
 ```bash
 cargo run --bin trajectory-server
 ```
-The server listens on `http://localhost:8080` and exposes health check endpoint `GET /api/v1/health`.
+The server requires the production environment variables described in
+[`deployment/README.md`](../deployment/README.md), including an HTTPS S3 endpoint;
+it exposes `GET /api/v1/health` on its configured bind address.
 
 #### 2. Capture Agent (Interactive Session)
 ```bash

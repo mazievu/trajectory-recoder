@@ -111,7 +111,7 @@ The system is decomposed into 6 primary binaries, 19 modular crates, and a Manif
 - **Rust Toolchain**: Rust 2024 Edition (`1.85.0` or higher) with `x86_64-pc-windows-msvc` target.
 - **C++ Build Tools**: Visual Studio 2022 C++ Build Tools (with Windows 10/11 SDK).
 - **Backend Infrastructure** (for server and local testing):
-  - Docker & Docker Compose (for PostgreSQL 16+ and MinIO).
+  - Docker & Docker Compose (for PostgreSQL 16+; bundled MinIO is development-only).
   - Alternatively, standalone PostgreSQL and S3-compatible storage.
 
 ### 2. Configuration & Environment Setup
@@ -122,13 +122,16 @@ Clone the repository and prepare the development environment:
 git clone https://github.com/company/trajectory-recorder.git
 cd trajectory-recorder
 
-# Configure local development environment for server
-cp server/.env.example server/.env
+# Configure the server role. Use a real externally reachable HTTPS URL for
+# clients; do not use this configuration on capture machines.
+Copy-Item deployment/server.env.example deployment/server.env
 ```
 
-Start the local PostgreSQL and MinIO infrastructure:
+Start the server stack. Production requires an externally managed HTTPS
+S3-compatible object store; the bundled MinIO profile is development-only and
+is not part of this command:
 ```bash
-docker compose -f server/docker-compose.yml up -d
+docker compose --env-file deployment/server.env -f server/docker-compose.yml up -d --build
 ```
 
 ### 3. Build Commands
