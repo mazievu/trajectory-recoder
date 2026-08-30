@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, type FormEvent } from 'react';
 
 import {
+  DashboardAuthenticationError,
   fetchMachines,
   formatOnlineDuration,
-  readDashboardConfig,
+  loginDashboard,
 } from './machine-dashboard.mjs';
 
 type MachinePresence = {
@@ -26,33 +27,77 @@ function displayLastSeen(timestamp: string | null): string {
 export default function App() {
   const [machines, setMachines] = useState<MachinePresence[]>([]);
   const [loading, setLoading] = useState(true);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [password, setPassword] = useState('');
+  const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const config = useMemo(() => readDashboardConfig(), []);
 
   const refresh = useCallback(async () => {
-    if (!config) {
-      setError('Dashboard configuration is unavailable on this host.');
-      setLoading(false);
-      return;
-    }
     try {
-      const nextMachines = await fetchMachines(config);
+      const nextMachines = await fetchMachines();
       setMachines(nextMachines);
+      setAuthenticated(true);
       setError(null);
     } catch (cause) {
+      if (cause instanceof DashboardAuthenticationError) {
+        setAuthenticated(false);
+        setError(null);
+        return;
+      }
       setError(cause instanceof Error ? cause.message : 'Unable to load machine status.');
     } finally {
       setLoading(false);
     }
-  }, [config]);
+  }, []);
 
   useEffect(() => {
     void refresh();
+    if (!authenticated) return undefined;
     const timer = window.setInterval(() => void refresh(), REFRESH_INTERVAL_MS);
     return () => window.clearInterval(timer);
-  }, [refresh]);
+  }, [authenticated, refresh]);
+
+  const signIn = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSigningIn(true);
+    setError(null);
+    try {
+      await loginDashboard(password);
+      setPassword('');
+      await refresh();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Unable to sign in.');
+    } finally {
+      setSigningIn(false);
+    }
+  };
 
   const onlineCount = machines.filter((machine) => machine.status === 'online').length;
+
+  if (!authenticated) {
+    return (
+      <main style={styles.loginPage}>
+        <form onSubmit={signIn} style={styles.loginCard}>
+          <h1 style={styles.title}>Trajectory Server</h1>
+          <p style={styles.subtitle}>Sign in to view connected recorder machines.</p>
+          <label htmlFor="dashboard-password" style={styles.loginLabel}>Dashboard password</label>
+          <input
+            id="dashboard-password"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete="current-password"
+            style={styles.password}
+            required
+          />
+          {error && <p role="alert" style={styles.error}>{error}</p>}
+          <button type="submit" style={styles.refresh} disabled={signingIn || loading}>
+            {signingIn ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
+      </main>
+    );
+  }
 
   return (
     <main style={styles.page}>
@@ -128,4 +173,8 @@ const styles: Record<string, CSSProperties> = {
   offline: { color: '#f87171', fontWeight: 700 },
   error: { border: '1px solid #ef4444', borderRadius: '6px', padding: '12px', color: '#fecaca' },
   empty: { color: '#94a3b8' },
+  loginPage: { minHeight: '100vh', display: 'grid', placeItems: 'center', padding: '24px', background: '#0f172a', color: '#e2e8f0' },
+  loginCard: { width: 'min(100%, 380px)', display: 'grid', gap: '12px', padding: '28px', border: '1px solid #334155', borderRadius: '10px', background: '#1e293b' },
+  loginLabel: { fontWeight: 700 },
+  password: { padding: '10px', borderRadius: '6px', border: '1px solid #475569', background: '#0f172a', color: '#f8fafc' },
 };

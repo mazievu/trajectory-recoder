@@ -82,7 +82,7 @@ test('submits the operator password only to the same-origin login endpoint', asy
   await loginDashboard('correct horse battery staple', async (url, init) => {
     requestedUrl = url;
     requestedOptions = init;
-    return new Response('', { status: 204 });
+    return new Response(null, { status: 204 });
   });
 
   assert.equal(requestedUrl, '/api/v1/dashboard/login');

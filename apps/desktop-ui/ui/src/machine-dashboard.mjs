@@ -1,10 +1,4 @@
 /**
- * @typedef {Object} DashboardConfig
- * @property {string} apiUrl
- * @property {string} apiToken
- */
-
-/**
  * @typedef {Object} MachinePresence
  * @property {string} machineId
  * @property {string} hostname
@@ -21,6 +15,13 @@ function asNonEmptyString(value, fieldName) {
     throw new Error(`Invalid machine response: ${fieldName} is required`);
   }
   return value;
+}
+
+export class DashboardAuthenticationError extends Error {
+  constructor() {
+    super('Sign in is required to view connected machines.');
+    this.name = 'DashboardAuthenticationError';
+  }
 }
 
 /**
@@ -73,16 +74,14 @@ export function formatOnlineDuration(seconds) {
 }
 
 /**
- * @param {DashboardConfig} config
  * @param {typeof fetch} fetchImpl
  * @returns {Promise<MachinePresence[]>}
  */
-export async function fetchMachines(config, fetchImpl = fetch) {
-  const apiUrl = asNonEmptyString(config?.apiUrl, 'dashboard API URL').replace(/\/+$/, '');
-  const apiToken = asNonEmptyString(config?.apiToken, 'dashboard API token');
-  const response = await fetchImpl(`${apiUrl}${MACHINES_PATH}`, {
-    headers: { 'X-Server-Token': apiToken },
-  });
+export async function fetchMachines(fetchImpl = fetch) {
+  const response = await fetchImpl(MACHINES_PATH, { credentials: 'include' });
+  if (response.status === 401 || response.status === 403) {
+    throw new DashboardAuthenticationError();
+  }
   if (!response.ok) {
     throw new Error(`Machine dashboard request failed (${response.status})`);
   }
@@ -90,15 +89,20 @@ export async function fetchMachines(config, fetchImpl = fetch) {
 }
 
 /**
- * Runtime configuration is injected by the server-only dashboard host. It is
- * deliberately not read from Vite variables: `VITE_*` values are embedded in
- * the browser bundle and would expose the dashboard credential.
+ * Establishes an HttpOnly dashboard session. No bearer token is persisted or
+ * exposed to the browser bundle.
  *
- * @returns {DashboardConfig | null}
+ * @param {string} password
+ * @param {typeof fetch} fetchImpl
  */
-export function readDashboardConfig() {
-  const config = globalThis.__TRAJECTORY_DASHBOARD_CONFIG__;
-  if (!config || typeof config !== 'object') return null;
-  if (typeof config.apiUrl !== 'string' || typeof config.apiToken !== 'string') return null;
-  return { apiUrl: config.apiUrl, apiToken: config.apiToken };
+export async function loginDashboard(password, fetchImpl = fetch) {
+  const response = await fetchImpl('/api/v1/dashboard/login', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ password: asNonEmptyString(password, 'password') }),
+  });
+  if (!response.ok) {
+    throw new Error(`Dashboard login failed (${response.status})`);
+  }
 }
