@@ -40,3 +40,6 @@ futures = { workspace = true }
 bytes = { workspace = true }
 anyhow = { workspace = true }
 subtle = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

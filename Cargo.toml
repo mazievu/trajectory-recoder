@@ -38,7 +38,9 @@ edition = "2024"
 authors = ["Trajectory Recorder Engineering Team"]
 license = "Proprietary"
 repository = "https://github.com/company/trajectory-recorder"
-rust-version = "1.85.0"
+# Cargo.lock currently resolves dependencies that require Rust 1.88 or newer.
+# Keep the declared MSRV aligned with the reproducible production build.
+rust-version = "1.88.0"
 
 [workspace.dependencies]
 # Internal Workspace Crates
@@ -107,7 +109,7 @@ base64 = "0.22"
 reqwest = { version = "0.12", features = ["json", "stream", "multipart"] }
 axum = { version = "0.7", features = ["macros", "multipart", "ws"] }
 tower = { version = "0.4", features = ["util", "timeout", "limit"] }
-tower-http = { version = "0.5", features = ["cors", "trace", "compression-full"] }
+tower-http = { version = "0.5", features = ["cors", "trace", "compression-full", "fs"] }
 dotenvy = "0.15"
 
 # Diagnostics & Logging

@@ -21,6 +21,7 @@ fn production_config_rejects_insecure_secrets_and_http_storage() {
         jwt_secret: "a".repeat(32),
         enrollment_token: "b".repeat(16),
         dashboard_api_token: "c".repeat(32),
+        dashboard_assets_dir: std::path::PathBuf::from("/opt/trajectory/dashboard"),
         s3_bucket: "trajectory-archives".to_string(),
         s3_region: "us-east-1".to_string(),
         s3_endpoint: "https://object.example.test".to_string(),
@@ -284,6 +285,42 @@ async fn dashboard_login_exchanges_a_user_entered_password_for_a_secure_session_
     assert!(set_cookie.contains("HttpOnly"));
     assert!(set_cookie.contains("Secure"));
     assert!(set_cookie.contains("SameSite=Strict"));
+}
+
+#[tokio::test]
+async fn dashboard_assets_are_served_only_under_dashboard_with_spa_fallback() {
+    let temp = tempfile::tempdir().unwrap();
+    std::fs::write(temp.path().join("index.html"), "<h1>Trajectory Dashboard</h1>").unwrap();
+    let mut state = AppState::new_in_memory();
+    state.dashboard_assets_dir = temp.path().to_path_buf();
+    let app = create_router(state);
+
+    let deep_link = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/dashboard/machines/MACHINE_01")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(deep_link.status(), StatusCode::OK);
+    let page = axum::body::to_bytes(deep_link.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    assert_eq!(page.as_ref(), b"<h1>Trajectory Dashboard</h1>");
+
+    let api_miss = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/not-found")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(api_miss.status(), StatusCode::NOT_FOUND);
 }
 
 #[tokio::test]
