@@ -90,6 +90,43 @@ fn required_env(name: &str) -> anyhow::Result<String> {
     Ok(value)
 }
 
+/// Validates the server-only deployment boundary without reading or logging
+/// secret values. A capture client must never be able to start this binary by
+/// accident with its own environment file.
+pub fn validate_server_deployment(
+    deployment_role: Option<&str>,
+    client_only_values: &[(&str, Option<&str>)],
+) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        deployment_role.is_some_and(|role| role.trim().eq_ignore_ascii_case("server")),
+        "DEPLOYMENT_ROLE must be set to server for trajectory-server"
+    );
+    for (name, value) in client_only_values {
+        anyhow::ensure!(
+            value.is_none_or(|value| value.trim().is_empty()),
+            "{name} is a client-only setting and must not be set for trajectory-server"
+        );
+    }
+    Ok(())
+}
+
+/// Reads the process environment only at the server process boundary. Kept
+/// separate from the pure validator so role handling has deterministic tests.
+pub fn require_server_deployment_role() -> anyhow::Result<()> {
+    let deployment_role = std::env::var("DEPLOYMENT_ROLE").ok();
+    let server_url = std::env::var("SERVER_URL").ok();
+    let device_token = std::env::var("DEVICE_TOKEN").ok();
+    let spool_dir = std::env::var("SPOOL_DIR").ok();
+    validate_server_deployment(
+        deployment_role.as_deref(),
+        &[
+            ("SERVER_URL", server_url.as_deref()),
+            ("DEVICE_TOKEN", device_token.as_deref()),
+            ("SPOOL_DIR", spool_dir.as_deref()),
+        ],
+    )
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
     pub sub: String, // machine_id
@@ -233,6 +270,7 @@ pub struct AppState {
 
 impl AppState {
     pub async fn connect_production(config: ProductionConfig) -> anyhow::Result<Self> {
+        require_server_deployment_role()?;
         config.validate()?;
         let db = sqlx::postgres::PgPoolOptions::new()
             .max_connections(20)
