@@ -11,6 +11,11 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
 
   minio:
     image: minio/minio:RELEASE.2024-08-17T01-24-54Z
@@ -42,8 +47,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
       ENROLLMENT_TOKEN: ${ENROLLMENT_TOKEN:?set ENROLLMENT_TOKEN}
       DASHBOARD_API_TOKEN: ${DASHBOARD_API_TOKEN:?set DASHBOARD_API_TOKEN}
+    restart: unless-stopped
     depends_on:
-      - postgres
+      postgres:
+        condition: service_healthy
 
   proxy:
     image: caddy:2.10-alpine
