@@ -1,4 +1,5 @@
 /target
+/target-server-presence/
 node_modules/
 apps/desktop-ui/ui/dist/
 browser-extension/dist/
