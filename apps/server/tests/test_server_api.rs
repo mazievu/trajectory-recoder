@@ -1,8 +1,9 @@
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use chrono::{Duration, Utc};
 use server::{
-    AppState, InitiateRequest, ProductionConfig, RegisterRequest, create_jwt, create_router,
-    verify_jwt,
+    AppState, HeartbeatRequest, InitiateRequest, ProductionConfig, RegisterRequest, create_jwt,
+    create_router, verify_jwt,
 };
 use sha2::{Digest, Sha256};
 use tower::ServiceExt;
@@ -19,6 +20,7 @@ fn production_config_rejects_insecure_secrets_and_http_storage() {
         database_url: "postgres://localhost/trajectory".to_string(),
         jwt_secret: "a".repeat(32),
         enrollment_token: "b".repeat(16),
+        dashboard_api_token: "c".repeat(32),
         s3_bucket: "trajectory-archives".to_string(),
         s3_region: "us-east-1".to_string(),
         s3_endpoint: "https://object.example.test".to_string(),
@@ -57,6 +59,191 @@ async fn registration_rejects_an_invalid_enrollment_token() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn dashboard_lists_a_registered_machine_after_its_authenticated_heartbeat() {
+    let state = AppState::new_in_memory();
+    let app = create_router(state.clone());
+    let registration = RegisterRequest {
+        machine_id: "MACHINE_PRESENCE_01".to_string(),
+        hostname: "client-01".to_string(),
+        os_version: "Windows 11".to_string(),
+        registration_token: state.enrollment_token.clone(),
+    };
+
+    let registered = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/machines/register")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&registration).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(registered.status(), StatusCode::OK);
+    let registration_body = axum::body::to_bytes(registered.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let device_jwt = serde_json::from_slice::<serde_json::Value>(&registration_body).unwrap()
+        ["device_jwt"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let heartbeat = HeartbeatRequest {
+        machine_id: registration.machine_id.clone(),
+        disk_usage_pct: 27.5,
+        active_session_id: Some("SESSION_LIVE".to_string()),
+    };
+    let heartbeated = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/machines/heartbeat")
+                .header("Authorization", format!("Bearer {device_jwt}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&heartbeat).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(heartbeated.status(), StatusCode::OK);
+
+    // A client that misses the server-side 90s heartbeat window starts a new
+    // continuous online interval when it reconnects.
+    {
+        let mut mem = state.mem_state.write();
+        let machine = mem.machines.get_mut(&registration.machine_id).unwrap();
+        machine.last_seen_at = Utc::now() - Duration::seconds(91);
+        machine.online_since_at = Utc::now() - Duration::hours(2);
+    }
+    let reconnected = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/machines/heartbeat")
+                .header("Authorization", format!("Bearer {device_jwt}"))
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&heartbeat).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(reconnected.status(), StatusCode::OK);
+
+    let machine_token_attempt = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/machines")
+                .header("Authorization", format!("Bearer {device_jwt}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(machine_token_attempt.status(), StatusCode::UNAUTHORIZED);
+
+    let dashboard_response = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/machines")
+                .header("X-Server-Token", &state.server_api_token)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(dashboard_response.status(), StatusCode::OK);
+
+    let body = axum::body::to_bytes(dashboard_response.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    let machine = &payload["machines"][0];
+    assert_eq!(machine["machine_id"], "MACHINE_PRESENCE_01");
+    assert_eq!(machine["hostname"], "client-01");
+    assert_eq!(machine["status"], "ONLINE");
+    assert_eq!(machine["is_online"], true);
+    assert_eq!(machine["disk_usage_pct"], 27.5);
+    assert_eq!(machine["active_session_id"], "SESSION_LIVE");
+    assert!(machine["registered_at"].is_string());
+    assert!(machine["last_seen_at"].is_string());
+    assert!(machine["online_since_at"].is_string());
+    assert!(machine["online_duration_secs"].as_u64().is_some());
+    assert!(machine["online_duration_secs"].as_u64().unwrap() < 5);
+}
+
+#[tokio::test]
+async fn dashboard_session_cookie_allows_machine_reads_without_exposing_the_dashboard_token() {
+    let state = AppState::new_in_memory();
+    let app = create_router(state.clone());
+
+    let session_response = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/dashboard/session")
+                .header("X-Server-Token", &state.server_api_token)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(session_response.status(), StatusCode::NO_CONTENT);
+    let session_cookie = session_response
+        .headers()
+        .get("Set-Cookie")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    assert!(session_response
+        .headers()
+        .get("Set-Cookie")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("HttpOnly"));
+    assert!(session_response
+        .headers()
+        .get("Set-Cookie")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("Secure"));
+    assert!(session_response
+        .headers()
+        .get("Set-Cookie")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .contains("SameSite=Strict"));
+
+    let dashboard_read = app
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri("/api/v1/machines")
+                .header("Cookie", session_cookie)
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(dashboard_read.status(), StatusCode::OK);
 }
 
 #[tokio::test]
