@@ -3,7 +3,7 @@ use axum::http::{Request, StatusCode};
 use chrono::{Duration, Utc};
 use server::{
     AppState, HeartbeatRequest, InitiateRequest, ProductionConfig, RegisterRequest, create_jwt,
-    create_router, verify_jwt,
+    create_router, validate_server_deployment, verify_jwt,
 };
 use sha2::{Digest, Sha256};
 use tower::ServiceExt;
@@ -35,6 +35,19 @@ fn production_config_rejects_insecure_secrets_and_http_storage() {
     config.jwt_secret = "a".repeat(32);
     config.s3_endpoint = "http://object.example.test".to_string();
     assert!(config.validate().is_err());
+}
+
+#[test]
+fn server_deployment_role_rejects_clients_and_client_only_settings() {
+    assert!(validate_server_deployment(Some("server"), &[]).is_ok());
+    assert!(validate_server_deployment(None, &[]).is_err());
+    assert!(validate_server_deployment(Some("client"), &[]).is_err());
+    assert!(validate_server_deployment(Some("server"), &[("SERVER_URL", Some("https://x"))]).is_err());
+    assert!(validate_server_deployment(
+        Some("server"),
+        &[("DEVICE_TOKEN", Some("device-token")), ("SPOOL_DIR", None)],
+    )
+    .is_err());
 }
 
 #[tokio::test]
