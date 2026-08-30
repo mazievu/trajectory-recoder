@@ -268,6 +268,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use config::ClientRuntimeConfig;
     use core_types::event::{RawEventPayload, RawKeyboardEvent, RawMouseEvent};
 
     #[test]
@@ -319,5 +320,30 @@ mod tests {
         .expect("enrollment identity should be accepted");
         assert_eq!(identity.machine_id, "MACHINE-01");
         assert_eq!(identity.user_id, "operator-01");
+    }
+
+    #[test]
+    fn capture_runtime_rejects_non_client_role_and_uses_configured_spool() {
+        let rejected = ClientRuntimeConfig::from_pairs([
+            ("DEPLOYMENT_ROLE", "server"),
+            ("TRAJECTORY_SERVER_URL", "https://collector.example.test"),
+            ("TRAJECTORY_MACHINE_ID", "MACHINE-01"),
+            ("TRAJECTORY_USER_ID", "operator-01"),
+            ("SPOOL_DIR", r"C:\\ProgramData\\TrajectoryRecorder\\spool"),
+        ]);
+        assert!(rejected.is_err());
+
+        let accepted = ClientRuntimeConfig::from_pairs([
+            ("DEPLOYMENT_ROLE", "client"),
+            ("TRAJECTORY_SERVER_URL", "https://collector.example.test"),
+            ("TRAJECTORY_MACHINE_ID", "MACHINE-01"),
+            ("TRAJECTORY_USER_ID", "operator-01"),
+            ("SPOOL_DIR", r"C:\\ProgramData\\TrajectoryRecorder\\spool"),
+        ])
+        .expect("client configuration should load");
+        assert_eq!(
+            accepted.spool_dir,
+            PathBuf::from(r"C:\\ProgramData\\TrajectoryRecorder\\spool")
+        );
     }
 }

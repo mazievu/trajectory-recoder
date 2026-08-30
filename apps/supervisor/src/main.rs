@@ -350,6 +350,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use config::ClientRuntimeConfig;
 
     #[test]
     fn test_get_disk_free_space_real() {
@@ -379,6 +380,21 @@ mod tests {
         assert!(validate_uploader_child_config(&uploader, Some("server")).is_err());
         assert!(validate_uploader_child_config(&uploader, Some("client")).is_ok());
         assert!(validate_uploader_child_config(Path::new("other.exe"), Some("client")).is_err());
+    }
+
+    #[test]
+    fn supervisor_loads_client_config_from_an_explicit_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("client.env");
+        std::fs::write(
+            &config_path,
+            "DEPLOYMENT_ROLE=client\nTRAJECTORY_SERVER_URL=https://collector.example.test\nTRAJECTORY_MACHINE_ID=MACHINE-01\nTRAJECTORY_USER_ID=operator-01\nSPOOL_DIR=C:\\\\ProgramData\\\\TrajectoryRecorder\\\\spool\n",
+        )
+        .unwrap();
+
+        let config = ClientRuntimeConfig::from_file(&config_path).unwrap();
+        assert_eq!(config.machine_id, "MACHINE-01");
+        assert_eq!(config.spool_dir, PathBuf::from(r"C:\\ProgramData\\TrajectoryRecorder\\spool"));
     }
 
     #[tokio::test]
