@@ -117,12 +117,28 @@ pub fn require_server_deployment_role() -> anyhow::Result<()> {
     let server_url = std::env::var("SERVER_URL").ok();
     let device_token = std::env::var("DEVICE_TOKEN").ok();
     let spool_dir = std::env::var("SPOOL_DIR").ok();
+    let trajectory_server_url = std::env::var("TRAJECTORY_SERVER_URL").ok();
+    let trajectory_machine_id = std::env::var("TRAJECTORY_MACHINE_ID").ok();
+    let trajectory_user_id = std::env::var("TRAJECTORY_USER_ID").ok();
+    let trajectory_enrollment_token = std::env::var("TRAJECTORY_ENROLLMENT_TOKEN").ok();
+    let trajectory_device_token_path = std::env::var("TRAJECTORY_DEVICE_TOKEN_PATH").ok();
     validate_server_deployment(
         deployment_role.as_deref(),
         &[
             ("SERVER_URL", server_url.as_deref()),
             ("DEVICE_TOKEN", device_token.as_deref()),
             ("SPOOL_DIR", spool_dir.as_deref()),
+            ("TRAJECTORY_SERVER_URL", trajectory_server_url.as_deref()),
+            ("TRAJECTORY_MACHINE_ID", trajectory_machine_id.as_deref()),
+            ("TRAJECTORY_USER_ID", trajectory_user_id.as_deref()),
+            (
+                "TRAJECTORY_ENROLLMENT_TOKEN",
+                trajectory_enrollment_token.as_deref(),
+            ),
+            (
+                "TRAJECTORY_DEVICE_TOKEN_PATH",
+                trajectory_device_token_path.as_deref(),
+            ),
         ],
     )
 }

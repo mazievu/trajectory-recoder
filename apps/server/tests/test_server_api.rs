@@ -48,6 +48,26 @@ fn server_deployment_role_rejects_clients_and_client_only_settings() {
         &[("DEVICE_TOKEN", Some("device-token")), ("SPOOL_DIR", None)],
     )
     .is_err());
+    assert!(
+        validate_server_deployment(
+            Some("server"),
+            &[(
+                "TRAJECTORY_SERVER_URL",
+                Some("https://collector.example.test")
+            )],
+        )
+        .is_err()
+    );
+    assert!(
+        validate_server_deployment(
+            Some("server"),
+            &[(
+                "TRAJECTORY_ENROLLMENT_TOKEN",
+                Some("client-enrollment-token")
+            )],
+        )
+        .is_err()
+    );
 }
 
 #[tokio::test]
