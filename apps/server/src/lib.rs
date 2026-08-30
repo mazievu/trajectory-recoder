@@ -354,12 +354,11 @@ fn verify_dashboard_session(
 }
 
 pub fn extract_machine_id(headers: &HeaderMap, jwt_secret: &str) -> Option<String> {
-    if let Some(auth_header) = headers.get("Authorization").and_then(|h| h.to_str().ok()) {
-        if let Some(token) = auth_header.strip_prefix("Bearer ") {
-            if let Ok(claims) = verify_jwt(token.trim(), jwt_secret) {
-                return Some(claims.sub);
-            }
-        }
+    if let Some(auth_header) = headers.get("Authorization").and_then(|h| h.to_str().ok())
+        && let Some(token) = auth_header.strip_prefix("Bearer ")
+        && let Ok(claims) = verify_jwt(token.trim(), jwt_secret)
+    {
+        return Some(claims.sub);
     }
     None
 }

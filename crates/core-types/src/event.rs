@@ -39,6 +39,9 @@ pub struct RawEvent {
 }
 
 impl RawEvent {
+    // A raw event is the schema boundary: keeping all required fields in this
+    // constructor prevents callers from creating a partially initialized event.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         event_id: u64,
         global_event_id: GlobalEventId,

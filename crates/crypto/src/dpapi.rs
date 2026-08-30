@@ -42,7 +42,7 @@ impl Dpapi {
                 return Err(CryptoError::InvalidPayloadLength { actual: 0 });
             }
 
-            let mut in_blob = CRYPT_INTEGER_BLOB {
+            let in_blob = CRYPT_INTEGER_BLOB {
                 cbData: ciphertext.len() as u32,
                 pbData: ciphertext.as_ptr() as *mut u8,
             };
@@ -66,7 +66,7 @@ impl Dpapi {
 
             let success = unsafe {
                 CryptUnprotectData(
-                    &mut in_blob,
+                    &in_blob,
                     None,
                     if optional_entropy.is_some() {
                         Some(p_entropy)
@@ -115,7 +115,7 @@ impl Dpapi {
         optional_entropy: Option<&[u8]>,
         local_machine: bool,
     ) -> Result<Vec<u8>, CryptoError> {
-        let mut in_blob = CRYPT_INTEGER_BLOB {
+        let in_blob = CRYPT_INTEGER_BLOB {
             cbData: plaintext.len() as u32,
             pbData: plaintext.as_ptr() as *mut u8,
         };
@@ -144,7 +144,7 @@ impl Dpapi {
 
         let success = unsafe {
             CryptProtectData(
-                &mut in_blob,
+                &in_blob,
                 PCWSTR(ptr::null()),
                 if optional_entropy.is_some() {
                     Some(p_entropy)
