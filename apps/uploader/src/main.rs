@@ -611,53 +611,39 @@ mod tests {
     use std::path::Path;
 
     #[test]
-    fn client_runtime_requires_an_explicit_server_endpoint() {
-        let err = ClientRuntimeConfig::from_values(None, Some("MACHINE-01".to_string()))
-            .expect_err("a client must never guess a server endpoint");
-        assert!(err.contains("TRAJECTORY_SERVER_URL"));
-    }
-
-    #[test]
-    fn client_runtime_rejects_plain_http_to_non_loopback_hosts() {
-        let err = ClientRuntimeConfig::from_values(
-            Some("http://collector.internal:8080".to_string()),
-            Some("MACHINE-01".to_string()),
+    fn uploader_loads_the_shared_client_file_for_its_spool_and_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let config_path = dir.path().join("client.env");
+        fs::write(
+            &config_path,
+            "DEPLOYMENT_ROLE=client\nTRAJECTORY_SERVER_URL=https://collector.example.test\nTRAJECTORY_MACHINE_ID=MACHINE-01\nTRAJECTORY_USER_ID=operator-01\nSPOOL_DIR=C:\\\\ProgramData\\\\TrajectoryRecorder\\\\spool\n",
         )
-        .expect_err("remote telemetry must not use plaintext HTTP");
-        assert!(err.contains("HTTPS"));
-    }
+        .unwrap();
 
-    #[test]
-    fn client_runtime_accepts_https_and_strips_trailing_slash() {
-        let config = ClientRuntimeConfig::from_values(
-            Some("https://collector.example.test/".to_string()),
-            Some("MACHINE-01".to_string()),
-        )
-        .expect("explicit HTTPS collector is a valid client target");
+        let (config, selected_path) = load_uploader_runtime_config(&[
+            "trajectory-uploader.exe".to_string(),
+            "--config".to_string(),
+            config_path.display().to_string(),
+        ])
+        .expect("uploader should accept a valid explicit client configuration file");
+
+        assert_eq!(selected_path, config_path);
         assert_eq!(config.server_url, "https://collector.example.test");
         assert_eq!(config.machine_id, "MACHINE-01");
-    }
-
-    #[test]
-    fn executable_name_defaults_to_its_safe_runtime_role() {
         assert_eq!(
-            resolve_runtime_role(None, Path::new("trajectory-uploader.exe")).unwrap(),
-            RuntimeRole::Client
-        );
-        assert_eq!(
-            resolve_runtime_role(None, Path::new("trajectory-server.exe")).unwrap(),
-            RuntimeRole::Server
+            config.spool_dir,
+            PathBuf::from(r"C:\\ProgramData\\TrajectoryRecorder\\spool")
         );
     }
 
     #[test]
-    fn client_executable_refuses_a_server_role_override() {
-        assert!(
-            resolve_runtime_role(Some("server"), Path::new("trajectory-uploader.exe")).is_err()
-        );
-        assert!(
-            resolve_runtime_role(Some("unknown"), Path::new("trajectory-uploader.exe")).is_err()
-        );
+    fn uploader_rejects_a_missing_config_argument_instead_of_reading_environment() {
+        let err = uploader_config_path(&[
+            "trajectory-uploader.exe".to_string(),
+            "--config".to_string(),
+        ])
+        .expect_err("the uploader must not fall back to process environment configuration");
+        assert!(err.contains("--config"));
     }
 
     #[test]

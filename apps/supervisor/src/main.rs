@@ -421,6 +421,19 @@ mod tests {
     }
 
     #[test]
+    fn uploader_child_receives_only_an_explicit_client_config_path() {
+        let config_path = Path::new(r"C:\\ProgramData\\TrajectoryRecorder\\client.env");
+
+        assert_eq!(
+            uploader_child_arguments(config_path),
+            vec![
+                std::ffi::OsString::from("--config"),
+                config_path.as_os_str().to_os_string(),
+            ]
+        );
+    }
+
+    #[test]
     fn supervisor_loads_client_config_from_an_explicit_file() {
         let dir = tempfile::tempdir().unwrap();
         let config_path = dir.path().join("client.env");
