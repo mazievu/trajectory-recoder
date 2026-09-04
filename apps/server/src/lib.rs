@@ -153,8 +153,40 @@ pub async fn verify_object_store_readiness(
         .list(None)
         .try_next()
         .await
-        .map_err(|error| anyhow::anyhow!("S3 readiness probe failed: {error}"))?;
+        .map_err(|error| {
+            anyhow::anyhow!(
+                "S3 readiness probe failed: {}",
+                bounded_error_chain(&error)
+            )
+        })?;
     Ok(())
+}
+
+/// Renders enough causal context to diagnose TLS/DNS/HTTP startup failures
+/// without serialising request headers or authorization material. Error chains
+/// are deliberately capped so a pathological dependency cannot flood logs.
+fn bounded_error_chain(error: &(dyn std::error::Error + 'static)) -> String {
+    const MAX_CAUSES: usize = 4;
+    const MAX_OUTPUT_BYTES: usize = 768;
+
+    let mut rendered = String::new();
+    let mut current = Some(error);
+    for _ in 0..MAX_CAUSES {
+        let Some(cause) = current else {
+            break;
+        };
+        if !rendered.is_empty() {
+            rendered.push_str(": caused by: ");
+        }
+        rendered.push_str(&cause.to_string());
+        if rendered.len() >= MAX_OUTPUT_BYTES {
+            rendered.truncate(MAX_OUTPUT_BYTES);
+            rendered.push_str("…");
+            break;
+        }
+        current = cause.source();
+    }
+    rendered
 }
 
 #[cfg(test)]
