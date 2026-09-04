@@ -27,6 +27,7 @@ fn production_config_rejects_insecure_secrets_and_http_storage() {
         s3_endpoint: "https://object.example.test".to_string(),
         s3_access_key: "access".to_string(),
         s3_secret_key: "secret".to_string(),
+        s3_ca_cert_path: None,
     };
     assert!(config.validate().is_ok());
 
@@ -35,6 +36,27 @@ fn production_config_rejects_insecure_secrets_and_http_storage() {
     config.jwt_secret = "a".repeat(32);
     config.s3_endpoint = "http://object.example.test".to_string();
     assert!(config.validate().is_err());
+}
+
+#[test]
+fn production_s3_client_rejects_an_invalid_operator_ca_bundle() {
+    let temp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(temp.path(), "this is not a PEM certificate").unwrap();
+    let config = ProductionConfig {
+        database_url: "postgres://localhost/trajectory".to_string(),
+        jwt_secret: "a".repeat(32),
+        enrollment_token: "b".repeat(16),
+        dashboard_api_token: "c".repeat(32),
+        dashboard_assets_dir: std::path::PathBuf::from("/opt/trajectory/dashboard"),
+        s3_bucket: "trajectory-archives".to_string(),
+        s3_region: "us-east-1".to_string(),
+        s3_endpoint: "https://object.example.test".to_string(),
+        s3_access_key: "access".to_string(),
+        s3_secret_key: "secret".to_string(),
+        s3_ca_cert_path: Some(temp.path().to_path_buf()),
+    };
+
+    assert!(config.s3_client_options().is_err());
 }
 
 #[test]
