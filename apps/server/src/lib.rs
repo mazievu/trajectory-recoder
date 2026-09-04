@@ -157,6 +157,23 @@ pub async fn verify_object_store_readiness(
     Ok(())
 }
 
+#[cfg(test)]
+mod readiness_diagnostic_tests {
+    use super::bounded_error_chain;
+    use std::io;
+
+    #[test]
+    fn readiness_diagnostic_reports_a_bounded_source_chain() {
+        let nested = io::Error::new(io::ErrorKind::Other, "TLS peer certificate rejected");
+        let outer = io::Error::new(io::ErrorKind::Other, nested);
+
+        let rendered = bounded_error_chain(&outer);
+
+        assert!(rendered.contains("TLS peer certificate rejected"));
+        assert!(rendered.len() < 1_024);
+    }
+}
+
 /// Validates the server-only deployment boundary without reading or logging
 /// secret values. A capture client must never be able to start this binary by
 /// accident with its own environment file.
