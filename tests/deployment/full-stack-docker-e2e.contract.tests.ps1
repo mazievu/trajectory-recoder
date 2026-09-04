@@ -21,7 +21,7 @@ foreach ($requiredService in @('postgres:', 'minio:', 'minio-init:', 'server:', 
 
 foreach ($requiredContract in @(
     'S3_ENDPOINT: https://minio:9000',
-    'SSL_CERT_FILE: /run/trajectory-e2e-certs/public.crt',
+    'S3_CA_CERT_PATH: /run/trajectory-e2e-certs/public.crt',
     'condition: service_completed_successfully',
     '127.0.0.1:${E2E_PROXY_PORT:-8443}:443'
 )) {
@@ -41,6 +41,17 @@ foreach ($requiredVerification in @(
 )) {
     if (-not $runner.Contains($requiredVerification)) {
         throw "E2E runner is missing verification '$requiredVerification'."
+    }
+}
+
+$productionEntrypoint = Join-Path $repositoryRoot 'server/docker-entrypoint.sh'
+if (-not (Test-Path -LiteralPath $productionEntrypoint)) {
+    throw 'Missing server entrypoint for operator-provided private S3 CA certificates.'
+}
+$entrypoint = Get-Content -LiteralPath $productionEntrypoint -Raw
+foreach ($requiredEntrypointContract in @('S3_CA_CERT_PATH', 'update-ca-certificates', 'exec /usr/local/bin/trajectory-server')) {
+    if (-not $entrypoint.Contains($requiredEntrypointContract)) {
+        throw "Server entrypoint is missing S3 CA trust contract '$requiredEntrypointContract'."
     }
 }
 
