@@ -33,6 +33,9 @@ pub struct ProductionConfig {
     pub s3_endpoint: String,
     pub s3_access_key: String,
     pub s3_secret_key: String,
+    /// Optional PEM bundle for an internal S3/MinIO CA. Publicly trusted S3
+    /// endpoints use the normal platform roots without this setting.
+    pub s3_ca_cert_path: Option<PathBuf>,
 }
 
 impl ProductionConfig {
@@ -50,6 +53,7 @@ impl ProductionConfig {
             s3_endpoint: required_env("S3_ENDPOINT")?,
             s3_access_key: required_env("S3_ACCESS_KEY")?,
             s3_secret_key: required_env("S3_SECRET_KEY")?,
+            s3_ca_cert_path: optional_path_env("S3_CA_CERT_PATH")?,
         };
         config.validate()?;
         Ok(config)
@@ -79,6 +83,37 @@ impl ProductionConfig {
         );
         Ok(())
     }
+
+    /// Creates S3 client options without weakening TLS. An operator-managed
+    /// PEM bundle is appended to the platform trust roots when configured.
+    pub fn s3_client_options(&self) -> anyhow::Result<object_store::ClientOptions> {
+        let mut options = object_store::ClientOptions::default();
+        if let Some(path) = &self.s3_ca_cert_path {
+            let pem = std::fs::read(path).map_err(|error| {
+                anyhow::anyhow!(
+                    "failed to read S3_CA_CERT_PATH {}: {error}",
+                    path.display()
+                )
+            })?;
+            let certificates = object_store::Certificate::from_pem_bundle(&pem).map_err(
+                |error| {
+                    anyhow::anyhow!(
+                        "failed to parse PEM certificate bundle at S3_CA_CERT_PATH {}: {error}",
+                        path.display()
+                    )
+                },
+            )?;
+            anyhow::ensure!(
+                !certificates.is_empty(),
+                "S3_CA_CERT_PATH {} does not contain a PEM certificate",
+                path.display()
+            );
+            for certificate in certificates {
+                options = options.with_root_certificate(certificate);
+            }
+        }
+        Ok(options)
+    }
 }
 
 fn required_env(name: &str) -> anyhow::Result<String> {
@@ -89,6 +124,22 @@ fn required_env(name: &str) -> anyhow::Result<String> {
         "required environment variable {name} is empty"
     );
     Ok(value)
+}
+
+fn optional_path_env(name: &str) -> anyhow::Result<Option<PathBuf>> {
+    match std::env::var(name) {
+        Ok(value) => {
+            anyhow::ensure!(
+                !value.trim().is_empty(),
+                "optional environment variable {name} is empty"
+            );
+            Ok(Some(PathBuf::from(value)))
+        }
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(error) => Err(anyhow::anyhow!(
+            "failed to read optional environment variable {name}: {error}"
+        )),
+    }
 }
 
 /// Probes the configured bucket before accepting production traffic. Building
@@ -319,6 +370,7 @@ impl AppState {
             .with_endpoint(&config.s3_endpoint)
             .with_access_key_id(&config.s3_access_key)
             .with_secret_access_key(&config.s3_secret_key)
+            .with_client_options(config.s3_client_options()?)
             .build()
             .map_err(|error| anyhow::anyhow!("failed to initialize S3 object store: {error}"))?;
         verify_object_store_readiness(&object_store).await?;
