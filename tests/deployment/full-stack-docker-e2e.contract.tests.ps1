@@ -21,7 +21,7 @@ foreach ($requiredService in @('postgres:', 'minio:', 'minio-init:', 'server:', 
 
 foreach ($requiredContract in @(
     'S3_ENDPOINT: https://minio:9000',
-    'S3_CA_CERT_PATH: /run/trajectory-e2e-certs/public.crt',
+    'S3_CA_CERT_PATH: /run/trajectory-e2e-certs/ca.crt',
     'condition: service_completed_successfully',
     '127.0.0.1:${E2E_PROXY_PORT:-8443}:443'
 )) {
@@ -37,7 +37,8 @@ foreach ($requiredVerification in @(
     '/api/v1/machines/register',
     '/api/v1/sessions/',
     'mc stat',
-    'sqlx'
+    'sqlx',
+    'ca.crt'
 )) {
     if (-not $runner.Contains($requiredVerification)) {
         throw "E2E runner is missing verification '$requiredVerification'."
