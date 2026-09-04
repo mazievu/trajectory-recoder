@@ -20,6 +20,15 @@ param(
 
     [string]$TaskName = 'Trajectory Recorder Interactive Capture',
 
+    # Override points keep integration tests isolated from a user's production
+    # task and native-messaging registration. The defaults are the production
+    # locations documented below.
+    [ValidatePattern('^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$')]
+    [string]$NativeHostName = 'com.trajectory.recorder.browser_host',
+
+    [ValidateNotNullOrEmpty()]
+    [string]$ManifestDirectory = (Join-Path $env:LOCALAPPDATA 'TrajectoryRecorder\native-messaging'),
+
     [switch]$Remove
 )
 
@@ -27,13 +36,14 @@ $ErrorActionPreference = 'Stop'
 
 $agentPath = Join-Path $InstallDirectory 'trajectory-agent.exe'
 $browserHostPath = Join-Path $InstallDirectory 'trajectory-browser-host.exe'
-$nativeHostName = 'com.trajectory.recorder.browser_host'
+$manifestPath = Join-Path $ManifestDirectory "$NativeHostName.json"
 
 if ($Remove) {
     Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$nativeHostName" -Recurse -Force -ErrorAction SilentlyContinue
-    Remove-Item -LiteralPath "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\$nativeHostName" -Recurse -Force -ErrorAction SilentlyContinue
-    Write-Host "Removed interactive capture task and per-user native messaging host registrations."
+    Remove-Item -LiteralPath "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$NativeHostName" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\$NativeHostName" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $manifestPath -Force -ErrorAction SilentlyContinue
+    Write-Host "Removed interactive capture task, per-user native messaging registrations, and manifest."
     exit 0
 }
 
@@ -56,10 +66,8 @@ if (-not [string]::IsNullOrWhiteSpace($EdgeExtensionId)) {
     $origins += "chrome-extension://$EdgeExtensionId/"
 }
 
-$manifestDirectory = Join-Path $env:LOCALAPPDATA 'TrajectoryRecorder\native-messaging'
-$manifestPath = Join-Path $manifestDirectory "$nativeHostName.json"
 $manifest = @{
-    name = $nativeHostName
+    name = $NativeHostName
     description = 'Trajectory Recorder Native Messaging Host Bridge'
     path = $browserHostPath
     type = 'stdio'
@@ -67,14 +75,14 @@ $manifest = @{
 } | ConvertTo-Json -Depth 3
 
 if ($PSCmdlet.ShouldProcess($manifestPath, 'write per-user native messaging manifest')) {
-    New-Item -ItemType Directory -Path $manifestDirectory -Force | Out-Null
+    New-Item -ItemType Directory -Path $ManifestDirectory -Force | Out-Null
     Set-Content -LiteralPath $manifestPath -Value $manifest -Encoding utf8 -NoNewline
 
-    $chromeKey = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$nativeHostName"
+    $chromeKey = "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$NativeHostName"
     New-Item -Path $chromeKey -Force | Out-Null
     Set-Item -Path $chromeKey -Value $manifestPath
     if (-not [string]::IsNullOrWhiteSpace($EdgeExtensionId)) {
-        $edgeKey = "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\$nativeHostName"
+        $edgeKey = "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\$NativeHostName"
         New-Item -Path $edgeKey -Force | Out-Null
         Set-Item -Path $edgeKey -Value $manifestPath
     }
@@ -85,7 +93,9 @@ if ($PSCmdlet.ShouldProcess($manifestPath, 'write per-user native messaging mani
 # over stdio on demand through the above HKCU native-messaging registration.
 $action = New-ScheduledTaskAction -Execute $agentPath -Argument "--config `"$ConfigPath`""
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User $UserId
-$principal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType InteractiveToken -RunLevel Limited
+# The Task Scheduler XML value is InteractiveToken. Windows PowerShell exposes
+# that schema value through the ScheduledTasks cmdlet as the `Interactive` enum.
+$principal = New-ScheduledTaskPrincipal -UserId $UserId -LogonType Interactive -RunLevel Limited
 if ($PSCmdlet.ShouldProcess($TaskName, "register interactive logon task for $UserId")) {
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
 }

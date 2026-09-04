@@ -95,6 +95,22 @@ It also registers an HKCU native-messaging manifest restricted to the supplied
 extension ID. Chrome/Edge launches `trajectory-browser-host.exe` on demand via
 native messaging; it is intentionally **not** a scheduled Session 0 process.
 
+To remove that user's launcher, repeat the command with the same task name and
+extension IDs, adding `-Remove`. Removal unregisters the task, deletes the
+Chrome/Edge HKCU registrations, and deletes its native-messaging manifest.
+
+On a Windows validation machine, run the isolated installer integration check:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File tests/deployment/interactive-capture-installer.tests.ps1
+```
+
+It creates only a GUID-named temporary Scheduled Task, per-user native-messaging
+keys under a GUID-named host, and files under `%TEMP%`. It asserts the task XML
+uses `InteractiveToken`, verifies the manifest's `allowed_origins`, then calls
+the remove path and asserts every temporary task, registry key, and manifest is
+gone.
+
 This is a per-user installation boundary. A generic all-user launcher requires
 an organisation-specific account-provisioning policy and an extension ID; the
 installer therefore requires both explicitly instead of guessing either.

@@ -2,7 +2,7 @@ $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $installer = Join-Path $repositoryRoot 'deployment\Install-InteractiveCaptureTask.ps1'
-$nativeHostName = "com.trajectory.recorder.test.$([guid]::NewGuid().ToString('N'))"
+$nativeHostName = "com.trajectory.recorder.test.t$([guid]::NewGuid().ToString('N'))"
 $taskName = "Trajectory Recorder Test $([guid]::NewGuid().ToString('N'))"
 $fixtureRoot = Join-Path ([System.IO.Path]::GetTempPath()) "trajectory-recorder-installer-test-$([guid]::NewGuid().ToString('N'))"
 $manifestDirectory = Join-Path $fixtureRoot 'native-messaging'
@@ -56,8 +56,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "Installer failed with exit code $LASTEXITCODE" }
 
     $task = Get-ScheduledTask -TaskName $taskName -ErrorAction Stop
-    Assert-True ($task.Principal.LogonType -eq 'InteractiveToken') 'Task must use InteractiveToken.'
-    Assert-True ($task.Principal.UserId -eq $currentUser) 'Task must target the requested signed-in user.'
+    Assert-True ($task.Principal.LogonType -eq 'Interactive') 'ScheduledTasks must expose the interactive logon enum.'
+    $taskXml = Export-ScheduledTask -TaskName $taskName
+    Assert-True ($taskXml -match '<LogonType>InteractiveToken</LogonType>') 'Task XML must use InteractiveToken.'
+    Assert-True (@($currentUser, $env:USERNAME) -contains $task.Principal.UserId) "Task must target the requested signed-in user (actual '$($task.Principal.UserId)')."
     Assert-True ($task.Actions[0].Execute -eq $agentPath) 'Task must launch the fixture capture agent.'
     Assert-True ($task.Actions[0].Arguments -match [regex]::Escape($configPath)) 'Task must pass the explicit fixture config.'
 
