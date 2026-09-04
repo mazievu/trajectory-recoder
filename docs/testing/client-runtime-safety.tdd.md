@@ -15,17 +15,17 @@ Source plan: derived during this implementation run.
 | Guarantee | Test target | RED evidence | GREEN evidence |
 |---|---|---|---|
 | Capture identity requires enrolled machine and user IDs | `cargo test -p capture-agent runtime_identity_requires_enrolled_machine_and_user_ids` | Failed to compile because `RuntimeIdentity::from_values` did not exist. | Passed after runtime identity resolver replaced hardcoded IDs. |
-| Uploader fails closed on endpoint/role policy | `cargo test -p uploader tests::` | Initial uploader target was blocked by an unrelated in-progress server compile error; the new tests referenced missing `ClientRuntimeConfig` and `resolve_runtime_role`. | 5 policy tests passed after the resolver implementation. |
+| Uploader loads only the shared client file | `cargo test -p uploader uploader_loads_the_shared_client_file_for_its_spool_and_identity` | The test referenced a missing uploader configuration loader. | Passed after uploader accepted `--config`/the deterministic `client.env` path and stopped reading endpoint, identity, spool, and credentials from its environment. |
 | Credential protection and authenticated upload pipeline work | `cargo test -p uploader` | Pipeline initially received `401` because it was not registered; then exposed duplicate JWT response aliases. | 7 uploader unit tests and the registered end-to-end upload test passed. |
-| Supervisor accepts only client uploader companion | `cargo test -p supervisor uploader_companion_must_be_a_sibling_client_executable` | Failed to compile because companion path and role validators did not exist. | Passed after the Session 0 child lifecycle implementation. |
+| Supervisor accepts only its uploader companion and passes a file path | `cargo test -p supervisor uploader_child_receives_only_an_explicit_client_config_path` | The test referenced a missing child-argument builder. | Passed after the supervisor cleared inherited environment and invoked uploader with `--config <client.env>` only. |
 | Capture rejects a server role, relative spool path, and uses the configured spool | `cargo test -p capture-agent capture_runtime_rejects_non_client_role_and_uses_configured_spool` | The new relative-spool assertion failed against the permissive loader. | Passed after absolute `SPOOL_DIR` validation was added. |
 | Supervisor reads an explicit file rather than machine environment | `cargo test -p supervisor supervisor_loads_client_config_from_an_explicit_file` | Failed to compile because `config::ClientRuntimeConfig` did not exist. | Passed after `--config` and service-path loading were added. |
 
 ## Final validation
 
-- `cargo test -p uploader` — PASS: 7 unit tests, 1 integration test.
+- `cargo test -p uploader` — PASS: 5 unit tests, 1 integration test.
 - `cargo test -p capture-agent` — PASS: 3 unit tests.
-- `cargo test -p supervisor` — PASS: 8 tests, including child-process reaping on graceful shutdown.
+- `cargo test -p supervisor` — PASS: 9 tests, including child-process reaping on graceful shutdown.
 - `cargo test -p config` — PASS: 6 existing configuration tests.
 - PowerShell parser — PASS: `deployment/Install-InteractiveCaptureTask.ps1` has no syntax errors.
 

@@ -2,6 +2,7 @@
 //! Packages finalized sessions into encrypted TAR.Zstd chunks and uploads to Ingestion Server.
 
 use archive::{SessionArchiveManifest, chunk_and_encrypt_archive, create_tar_zstd_archive};
+use config::{ClientRuntimeConfig, default_client_config_path};
 use diagnostics::{DiagnosticsConfig, init_diagnostics};
 use spool::{SpoolDirectoryManager, SpoolState};
 use std::fs;
@@ -12,116 +13,36 @@ use upload_client::{
     HeartbeatRequest, InitiateSessionRequest, RegisterMachineRequest, UploadClient,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum RuntimeRole {
-    Client,
-    Server,
+fn uploader_config_path(args: &[String]) -> Result<PathBuf, String> {
+    let mut config_path = None;
+    let mut index = 1;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--config" => {
+                let path = args
+                    .get(index + 1)
+                    .filter(|value| !value.starts_with("--"))
+                    .ok_or_else(|| "--config requires a client.env path".to_string())?;
+                if config_path.replace(PathBuf::from(path)).is_some() {
+                    return Err("--config may only be supplied once".to_string());
+                }
+                index += 2;
+            }
+            "--help" | "-h" => {
+                return Err("Usage: trajectory-uploader [--config <client.env path>]".to_string());
+            }
+            other => return Err(format!("unknown uploader argument: {other}")),
+        }
+    }
+    Ok(config_path.unwrap_or_else(default_client_config_path))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ClientRuntimeConfig {
-    server_url: String,
-    machine_id: String,
-}
-
-impl ClientRuntimeConfig {
-    fn from_env() -> Result<Self, String> {
-        Self::from_values(
-            std::env::var("TRAJECTORY_SERVER_URL").ok(),
-            std::env::var("TRAJECTORY_MACHINE_ID").ok(),
-        )
-    }
-
-    fn from_values(server_url: Option<String>, machine_id: Option<String>) -> Result<Self, String> {
-        let server_url = server_url
-            .map(|value| value.trim().trim_end_matches('/').to_string())
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| {
-                "TRAJECTORY_SERVER_URL is required; refusing to guess a collector endpoint"
-                    .to_string()
-            })?;
-        validate_server_url(&server_url)?;
-
-        let machine_id = machine_id
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| {
-                "TRAJECTORY_MACHINE_ID is required; refusing an un-enrolled client".to_string()
-            })?;
-
-        Ok(Self {
-            server_url,
-            machine_id,
-        })
-    }
-}
-
-fn validate_server_url(server_url: &str) -> Result<(), String> {
-    let (scheme, remainder) = server_url
-        .split_once("://")
-        .ok_or_else(|| "TRAJECTORY_SERVER_URL must include http:// or https://".to_string())?;
-    let authority = remainder.split('/').next().unwrap_or_default();
-    if authority.is_empty() || authority.chars().any(char::is_whitespace) {
-        return Err("TRAJECTORY_SERVER_URL must contain a valid host".to_string());
-    }
-
-    let host = authority
-        .trim_start_matches('[')
-        .split(']')
-        .next()
-        .unwrap_or(authority)
-        .split(':')
-        .next()
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let is_loopback = matches!(host.as_str(), "localhost" | "127.0.0.1" | "::1");
-
-    match scheme {
-        "https" => Ok(()),
-        "http" if is_loopback => Ok(()),
-        "http" => Err(
-            "TRAJECTORY_SERVER_URL must use HTTPS outside a loopback test environment".to_string(),
-        ),
-        _ => Err("TRAJECTORY_SERVER_URL must use http:// or https://".to_string()),
-    }
-}
-
-fn resolve_runtime_role(
-    role_override: Option<&str>,
-    executable: &Path,
-) -> Result<RuntimeRole, String> {
-    let executable_name = executable
-        .file_stem()
-        .and_then(|name| name.to_str())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    let executable_role = if executable_name.contains("server") {
-        RuntimeRole::Server
-    } else if executable_name.contains("uploader")
-        || executable_name.contains("agent")
-        || executable_name.contains("supervisor")
-    {
-        RuntimeRole::Client
-    } else {
-        return Err(
-            "cannot infer deployment role from executable name; set DEPLOYMENT_ROLE".to_string(),
-        );
-    };
-
-    let requested_role = match role_override.map(str::trim).filter(|role| !role.is_empty()) {
-        None => executable_role,
-        Some("client") => RuntimeRole::Client,
-        Some("server") => RuntimeRole::Server,
-        Some(_) => return Err("DEPLOYMENT_ROLE must be either client or server".to_string()),
-    };
-
-    if requested_role != executable_role {
-        return Err(
-            "DEPLOYMENT_ROLE conflicts with this executable; refusing to run the wrong role"
-                .to_string(),
-        );
-    }
-    Ok(executable_role)
+fn load_uploader_runtime_config(
+    args: &[String],
+) -> Result<(ClientRuntimeConfig, PathBuf), config::ClientRuntimeConfigError> {
+    let config_path = uploader_config_path(args).map_err(config::ClientRuntimeConfigError::Io)?;
+    let runtime = ClientRuntimeConfig::from_file(&config_path)?;
+    Ok((runtime, config_path))
 }
 
 fn machine_hostname(machine_id: &str) -> String {
@@ -132,10 +53,11 @@ fn machine_hostname(machine_id: &str) -> String {
         .unwrap_or_else(|| machine_id.to_string())
 }
 
-fn token_path(spool_root: &Path) -> PathBuf {
-    std::env::var("TRAJECTORY_DEVICE_TOKEN_PATH")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| spool_root.join("device-token.dpapi"))
+fn token_path(runtime: &ClientRuntimeConfig) -> PathBuf {
+    runtime
+        .device_token_path
+        .clone()
+        .unwrap_or_else(|| runtime.spool_dir.join("device-token.dpapi"))
 }
 
 fn load_device_token(path: &Path) -> Result<Option<String>, String> {
@@ -236,32 +158,19 @@ fn unprotect_token_for_current_user(_ciphertext: &[u8]) -> Result<String, String
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _guard = init_diagnostics(&DiagnosticsConfig::default());
-    let executable = std::env::current_exe()?;
-    let role = resolve_runtime_role(
-        std::env::var("DEPLOYMENT_ROLE").ok().as_deref(),
-        &executable,
-    )?;
-    if role != RuntimeRole::Client {
-        return Err("trajectory-uploader is a client-only background process".into());
-    }
-
-    let spool_root = std::env::var("SPOOL_DIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| PathBuf::from("spool"));
+    let args: Vec<String> = std::env::args().collect();
+    let (runtime, config_path) = load_uploader_runtime_config(&args)?;
+    let spool_root = runtime.spool_dir.clone();
     let spool_mgr = SpoolDirectoryManager::new(&spool_root)?;
-    let runtime = ClientRuntimeConfig::from_env()?;
     let mut client = UploadClient::new(&runtime.server_url);
-    let credential_path = token_path(&spool_root);
+    let credential_path = token_path(&runtime);
 
-    if let Some(token) = std::env::var("DEVICE_TOKEN")
-        .ok()
-        .filter(|token| !token.trim().is_empty())
-    {
+    if let Some(token) = runtime.device_token.clone() {
         client.set_device_token(token);
     } else if let Some(token) = load_device_token(&credential_path)? {
         client.set_device_token(token);
     } else {
-        let enrollment_token = std::env::var("TRAJECTORY_ENROLLMENT_TOKEN").map_err(|_| {
+        let enrollment_token = runtime.enrollment_token.clone().ok_or_else(|| {
             "a client needs DEVICE_TOKEN, a DPAPI credential, or TRAJECTORY_ENROLLMENT_TOKEN"
                 .to_string()
         })?;
@@ -283,6 +192,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!(
         machine_id = %runtime.machine_id,
         server = %runtime.server_url,
+        config = %config_path.display(),
         "Client uploader is running in the background"
     );
 
@@ -608,7 +518,6 @@ fn find_chunk_path(chunks_dir: &Path, chunk_index: usize, file_name: &str) -> Pa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     #[test]
     fn uploader_loads_the_shared_client_file_for_its_spool_and_identity() {
@@ -644,6 +553,14 @@ mod tests {
         ])
         .expect_err("the uploader must not fall back to process environment configuration");
         assert!(err.contains("--config"));
+    }
+
+    #[test]
+    fn uploader_without_arguments_uses_only_the_deterministic_client_config_path() {
+        assert_eq!(
+            uploader_config_path(&["trajectory-uploader.exe".to_string()]).unwrap(),
+            default_client_config_path()
+        );
     }
 
     #[test]

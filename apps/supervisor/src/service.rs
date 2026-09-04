@@ -113,8 +113,9 @@ fn supervisor_service_main(_args: Vec<OsString>) {
         "Windows Service loop starting with explicit client configuration"
     );
 
-    let result =
-        rt.block_on(async { crate::run_supervisor_loop(runtime_config, cancel_token).await });
+    let result = rt.block_on(async {
+        crate::run_supervisor_loop(runtime_config, config_path.to_path_buf(), cancel_token).await
+    });
 
     if let Err(e) = result {
         error!(

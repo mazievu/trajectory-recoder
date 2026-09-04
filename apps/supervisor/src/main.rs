@@ -23,10 +23,7 @@ fn uploader_companion_path(supervisor_executable: &Path) -> Result<PathBuf, Stri
     Ok(parent.join("trajectory-uploader.exe"))
 }
 
-fn validate_uploader_child_config(
-    uploader_executable: &Path,
-    deployment_role: Option<&str>,
-) -> Result<(), String> {
+fn validate_uploader_child_config(uploader_executable: &Path) -> Result<(), String> {
     let file_name = uploader_executable
         .file_name()
         .and_then(|name| name.to_str())
@@ -34,20 +31,21 @@ fn validate_uploader_child_config(
     if !file_name.eq_ignore_ascii_case("trajectory-uploader.exe") {
         return Err("supervisor may only start its trajectory-uploader.exe companion".to_string());
     }
-    if deployment_role.map(str::trim) != Some("client") {
-        return Err(
-            "DEPLOYMENT_ROLE=client is required before the supervisor starts uploader".to_string(),
-        );
-    }
     Ok(())
 }
 
-async fn start_uploader_child(runtime: &ClientRuntimeConfig) -> Result<Child, std::io::Error> {
+fn uploader_child_arguments(config_path: &Path) -> Vec<std::ffi::OsString> {
+    vec![
+        std::ffi::OsString::from("--config"),
+        config_path.as_os_str().to_os_string(),
+    ]
+}
+
+async fn start_uploader_child(config_path: &Path) -> Result<Child, std::io::Error> {
     let supervisor_executable = std::env::current_exe()?;
     let uploader_executable =
         uploader_companion_path(&supervisor_executable).map_err(std::io::Error::other)?;
-    validate_uploader_child_config(&uploader_executable, Some("client"))
-        .map_err(std::io::Error::other)?;
+    validate_uploader_child_config(&uploader_executable).map_err(std::io::Error::other)?;
     if !uploader_executable.is_file() {
         return Err(std::io::Error::new(
             std::io::ErrorKind::NotFound,
@@ -63,7 +61,7 @@ async fn start_uploader_child(runtime: &ClientRuntimeConfig) -> Result<Child, st
     // logon task, while uploader is safe to run as a headless child.
     Command::new(uploader_executable)
         .env_clear()
-        .envs(runtime.child_environment())
+        .args(uploader_child_arguments(config_path))
         .kill_on_drop(true)
         .spawn()
 }
@@ -153,9 +151,10 @@ pub fn get_disk_free_space<P: AsRef<Path>>(path: P) -> Result<(u64, u64, u64), s
 /// Runs the production Session 0 supervisor and its headless uploader companion.
 pub async fn run_supervisor_loop(
     runtime: ClientRuntimeConfig,
+    config_path: PathBuf,
     cancel_token: CancellationToken,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let mut uploader = start_uploader_child(&runtime).await?;
+    let mut uploader = start_uploader_child(&config_path).await?;
     info!(pid = ?uploader.id(), "Started headless uploader companion");
 
     let mut supervisor_loop = Box::pin(run_supervisor_loop_without_uploader(
@@ -378,7 +377,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    if let Err(e) = run_supervisor_loop(runtime_config, cancel_token).await {
+    if let Err(e) = run_supervisor_loop(runtime_config, config_path, cancel_token).await {
         error!("Supervisor terminated with error: {}", e);
     }
 
@@ -415,9 +414,8 @@ mod tests {
             uploader,
             PathBuf::from(r"C:\\Program Files\\Trajectory\\trajectory-uploader.exe")
         );
-        assert!(validate_uploader_child_config(&uploader, Some("server")).is_err());
-        assert!(validate_uploader_child_config(&uploader, Some("client")).is_ok());
-        assert!(validate_uploader_child_config(Path::new("other.exe"), Some("client")).is_err());
+        assert!(validate_uploader_child_config(&uploader).is_ok());
+        assert!(validate_uploader_child_config(Path::new("other.exe")).is_err());
     }
 
     #[test]

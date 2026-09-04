@@ -142,29 +142,6 @@ impl ClientRuntimeConfig {
                 .map(PathBuf::from),
         })
     }
-
-    /// Environment entries explicitly passed to the uploader child. The host
-    /// service must use `env_clear()` first so server/machine-wide variables
-    /// cannot alter a client's destination or identity.
-    pub fn child_environment(&self) -> Vec<(&'static str, String)> {
-        let mut values = vec![
-            ("DEPLOYMENT_ROLE", "client".to_string()),
-            ("TRAJECTORY_SERVER_URL", self.server_url.clone()),
-            ("TRAJECTORY_MACHINE_ID", self.machine_id.clone()),
-            ("TRAJECTORY_USER_ID", self.user_id.clone()),
-            ("SPOOL_DIR", self.spool_dir.display().to_string()),
-        ];
-        if let Some(value) = &self.enrollment_token {
-            values.push(("TRAJECTORY_ENROLLMENT_TOKEN", value.clone()));
-        }
-        if let Some(value) = &self.device_token {
-            values.push(("DEVICE_TOKEN", value.clone()));
-        }
-        if let Some(value) = &self.device_token_path {
-            values.push(("TRAJECTORY_DEVICE_TOKEN_PATH", value.display().to_string()));
-        }
-        values
-    }
 }
 
 fn optional_value(values: &BTreeMap<String, String>, key: &str) -> Option<String> {
