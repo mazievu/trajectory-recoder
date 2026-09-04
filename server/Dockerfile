@@ -30,6 +30,8 @@ RUN apt-get update \
 
 COPY --from=builder /workspace/target/release/trajectory-server /usr/local/bin/trajectory-server
 COPY --from=dashboard-builder /dashboard/dist /opt/trajectory/dashboard
+COPY server/docker-entrypoint.sh /usr/local/bin/trajectory-server-entrypoint
+RUN chmod 0555 /usr/local/bin/trajectory-server-entrypoint
 ENV DASHBOARD_ASSETS_DIR=/opt/trajectory/dashboard
 EXPOSE 8080
-ENTRYPOINT ["/usr/local/bin/trajectory-server"]
+ENTRYPOINT ["/usr/local/bin/trajectory-server-entrypoint"]

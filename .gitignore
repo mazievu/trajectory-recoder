@@ -13,3 +13,4 @@ Cargo.lock.tmp
 spool/
 logs/
 .agents/
+/tests/deployment/.artifacts/
