@@ -3,7 +3,7 @@ use axum::http::{Request, StatusCode};
 use chrono::{Duration, Utc};
 use server::{
     AppState, HeartbeatRequest, InitiateRequest, ProductionConfig, RegisterRequest, create_jwt,
-    create_router, validate_server_deployment, verify_jwt,
+    create_router, validate_server_deployment, verify_jwt, verify_object_store_readiness,
 };
 use sha2::{Digest, Sha256};
 use tower::ServiceExt;
@@ -68,6 +68,14 @@ fn server_deployment_role_rejects_clients_and_client_only_settings() {
         )
         .is_err()
     );
+}
+
+#[tokio::test]
+async fn object_store_readiness_probe_requires_a_reachable_store() {
+    let store = object_store::memory::InMemory::new();
+    verify_object_store_readiness(&store)
+        .await
+        .expect("an available object store must pass the startup readiness probe");
 }
 
 #[tokio::test]
