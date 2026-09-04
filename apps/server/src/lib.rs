@@ -166,7 +166,7 @@ pub async fn verify_object_store_readiness(
 /// without serialising request headers or authorization material. Error chains
 /// are deliberately capped so a pathological dependency cannot flood logs.
 fn bounded_error_chain(error: &(dyn std::error::Error + 'static)) -> String {
-    const MAX_CAUSES: usize = 4;
+    const MAX_CAUSES: usize = 8;
     const MAX_OUTPUT_BYTES: usize = 768;
 
     let mut rendered = String::new();
