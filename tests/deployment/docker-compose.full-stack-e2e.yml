@@ -39,9 +39,12 @@ services:
       - -ec
       - |
         attempt=0
-        until mc alias set --insecure e2e https://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" >/dev/null 2>&1; do
-          attempt=$$((attempt + 1))
-          test "$$attempt" -lt 60 || exit 1
+        until mc alias set --insecure e2e https://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do
+            attempt=$$((attempt + 1))
+          test "$$attempt" -lt 60 || {
+            echo "MinIO did not accept its configured HTTPS credentials after $$attempt attempts" >&2
+            exit 1
+          }
           sleep 1
         done
         mc mb --ignore-existing --insecure "e2e/$$S3_BUCKET" >/dev/null

@@ -167,7 +167,8 @@ pub async fn verify_object_store_readiness(
 /// are deliberately capped so a pathological dependency cannot flood logs.
 fn bounded_error_chain(error: &(dyn std::error::Error + 'static)) -> String {
     const MAX_CAUSES: usize = 8;
-    const MAX_OUTPUT_BYTES: usize = 768;
+    const MAX_CAUSE_BYTES: usize = 192;
+    const MAX_OUTPUT_BYTES: usize = 1_536;
 
     let mut rendered = String::new();
     let mut current = Some(error);
@@ -178,7 +179,12 @@ fn bounded_error_chain(error: &(dyn std::error::Error + 'static)) -> String {
         if !rendered.is_empty() {
             rendered.push_str(": caused by: ");
         }
-        rendered.push_str(&cause.to_string());
+        let mut message = cause.to_string();
+        if message.len() > MAX_CAUSE_BYTES {
+            message.truncate(MAX_CAUSE_BYTES);
+            message.push_str("…");
+        }
+        rendered.push_str(&message);
         if rendered.len() >= MAX_OUTPUT_BYTES {
             rendered.truncate(MAX_OUTPUT_BYTES);
             rendered.push_str("…");

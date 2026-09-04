@@ -13,7 +13,19 @@ $runId = "run-$PID"
 $runDirectory = Join-Path $artifactRoot $runId
 $certificateDirectory = Join-Path $runDirectory 'certificates'
 $projectName = "trajectory-e2e-$PID"
-$proxyPort = if ($env:E2E_PROXY_PORT) { $env:E2E_PROXY_PORT } else { '8443' }
+
+function Find-FreeLoopbackPort {
+    $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+    try {
+        $listener.Start()
+        return $listener.LocalEndpoint.Port.ToString()
+    }
+    finally {
+        $listener.Stop()
+    }
+}
+
+$proxyPort = if ($env:E2E_PROXY_PORT) { $env:E2E_PROXY_PORT } else { Find-FreeLoopbackPort }
 $publicHostname = 'trajectory-e2e.test'
 $dashboardPassword = 'trajectory-e2e-dashboard-password-32-bytes'
 $enrollmentToken = 'trajectory-e2e-enrollment-token'
@@ -71,9 +83,13 @@ function New-TestCertificate {
     # Use a disposable container rather than host OpenSSL or a developer cert
     # store. Rustls validates a conventional CA -> leaf chain, not a leaf that
     # is also used as its own trust anchor.
-    Invoke-Checked -Description 'test certificate generation' -Action {
+    Invoke-Checked -Description 'test CA generation' -Action {
         & docker run --rm --volume "${OutputDirectory}:/out" alpine:3.20 sh -ec `
-            'apk add --no-cache openssl >/dev/null && openssl req -x509 -newkey rsa:2048 -nodes -keyout /out/ca.key -out /out/ca.crt -days 1 -subj "/CN=Trajectory E2E Test CA" -addext "basicConstraints=critical,CA:true" -addext "keyUsage=critical,keyCertSign,cRLSign" >/dev/null 2>&1 && openssl req -newkey rsa:2048 -nodes -keyout /out/private.key -out /tmp/leaf.csr -subj "/CN=trajectory-e2e.test" >/dev/null 2>&1 && printf "%s\n" "[v3_leaf]" "basicConstraints=critical,CA:false" "keyUsage=critical,digitalSignature,keyEncipherment" "extendedKeyUsage=serverAuth" "subjectAltName=DNS:trajectory-e2e.test,DNS:minio,DNS:localhost,IP:127.0.0.1" > /tmp/leaf.cnf && openssl x509 -req -in /tmp/leaf.csr -CA /out/ca.crt -CAkey /out/ca.key -CAcreateserial -out /out/public.crt -days 1 -extfile /tmp/leaf.cnf -extensions v3_leaf >/dev/null 2>&1 && rm -f /tmp/leaf.csr /tmp/leaf.cnf /out/ca.srl'
+            'apk add --no-cache openssl >/dev/null && openssl req -x509 -newkey rsa:2048 -nodes -keyout /out/ca.key -out /out/ca.crt -days 1 -subj "/CN=Trajectory E2E Test CA" -addext "basicConstraints=critical,CA:true" -addext "keyUsage=critical,keyCertSign,cRLSign"'
+    }
+    Invoke-Checked -Description 'test TLS leaf generation' -Action {
+        & docker run --rm --volume "${OutputDirectory}:/out" alpine:3.20 sh -ec `
+            'apk add --no-cache openssl >/dev/null && openssl req -newkey rsa:2048 -nodes -keyout /out/private.key -out /tmp/leaf.csr -subj "/CN=trajectory-e2e.test" && printf "%s\n" "[v3_leaf]" "basicConstraints=critical,CA:false" "keyUsage=critical,digitalSignature,keyEncipherment" "extendedKeyUsage=serverAuth" "subjectAltName=DNS:trajectory-e2e.test,DNS:minio,DNS:localhost,IP:127.0.0.1" > /tmp/leaf.cnf && openssl x509 -req -in /tmp/leaf.csr -CA /out/ca.crt -CAkey /out/ca.key -CAcreateserial -out /out/public.crt -days 1 -extfile /tmp/leaf.cnf -extensions v3_leaf && rm -f /tmp/leaf.csr /tmp/leaf.cnf /out/ca.srl'
     }
 }
 
@@ -85,6 +101,12 @@ if (-not (Get-Command curl.exe -ErrorAction SilentlyContinue)) {
 }
 
 New-TestCertificate -OutputDirectory $certificateDirectory
+foreach ($certificateFile in @('ca.crt', 'public.crt', 'private.key')) {
+    $certificatePath = Join-Path $certificateDirectory $certificateFile
+    if (-not (Test-Path -LiteralPath $certificatePath -PathType Leaf)) {
+        throw "Test TLS generation did not create certificate file: $certificatePath"
+    }
+}
 $env:E2E_CERT_DIR = (Resolve-Path -LiteralPath $certificateDirectory).Path
 $env:E2E_PROXY_PORT = $proxyPort
 
