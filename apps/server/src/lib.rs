@@ -10,6 +10,7 @@ use axum::response::{IntoResponse, Json, Response};
 use axum::routing::{get, post, put};
 use bytes::Bytes;
 use chrono::{DateTime, Duration, Utc};
+use futures::TryStreamExt;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -88,6 +89,21 @@ fn required_env(name: &str) -> anyhow::Result<String> {
         "required environment variable {name} is empty"
     );
     Ok(value)
+}
+
+/// Probes the configured bucket before accepting production traffic. Building
+/// an S3 client is lazy, so without this request invalid credentials, an
+/// untrusted TLS chain, or a missing bucket would otherwise be discovered only
+/// after a client had already started an upload.
+pub async fn verify_object_store_readiness(
+    object_store: &dyn object_store::ObjectStore,
+) -> anyhow::Result<()> {
+    object_store
+        .list(None)
+        .try_next()
+        .await
+        .map_err(|error| anyhow::anyhow!("S3 readiness probe failed: {error}"))?;
+    Ok(())
 }
 
 /// Validates the server-only deployment boundary without reading or logging
@@ -305,6 +321,7 @@ impl AppState {
             .with_secret_access_key(&config.s3_secret_key)
             .build()
             .map_err(|error| anyhow::anyhow!("failed to initialize S3 object store: {error}"))?;
+        verify_object_store_readiness(&object_store).await?;
 
         Ok(Self {
             db: Some(db),
