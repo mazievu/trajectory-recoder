@@ -46,7 +46,7 @@ function Invoke-E2eCurl {
     param([Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments)
 
     Invoke-Checked -Description "HTTPS request to $publicHostname" -Action {
-        & curl.exe --silent --show-error --fail --noproxy '*' --cacert (Join-Path $certificateDirectory 'public.crt') `
+        & curl.exe --silent --show-error --fail --noproxy '*' --cacert (Join-Path $certificateDirectory 'ca.crt') `
             --resolve "${publicHostname}:${proxyPort}:127.0.0.1" @Arguments
     }
 }
@@ -69,10 +69,11 @@ function New-TestCertificate {
 
     New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
     # Use a disposable container rather than host OpenSSL or a developer cert
-    # store. This remains compatible with Windows PowerShell 5.1 and pwsh.
+    # store. Rustls validates a conventional CA -> leaf chain, not a leaf that
+    # is also used as its own trust anchor.
     Invoke-Checked -Description 'test certificate generation' -Action {
         & docker run --rm --volume "${OutputDirectory}:/out" alpine:3.20 sh -ec `
-            'apk add --no-cache openssl >/dev/null && openssl req -x509 -newkey rsa:2048 -nodes -keyout /out/private.key -out /out/public.crt -days 1 -subj "/CN=trajectory-e2e.test" -addext "subjectAltName=DNS:trajectory-e2e.test,DNS:minio,DNS:localhost,IP:127.0.0.1" >/dev/null 2>&1'
+            'apk add --no-cache openssl >/dev/null && openssl req -x509 -newkey rsa:2048 -nodes -keyout /out/ca.key -out /out/ca.crt -days 1 -subj "/CN=Trajectory E2E Test CA" -addext "basicConstraints=critical,CA:true" -addext "keyUsage=critical,keyCertSign,cRLSign" >/dev/null 2>&1 && openssl req -newkey rsa:2048 -nodes -keyout /out/private.key -out /tmp/leaf.csr -subj "/CN=trajectory-e2e.test" >/dev/null 2>&1 && printf "%s\\n" "[v3_leaf]" "basicConstraints=critical,CA:false" "keyUsage=critical,digitalSignature,keyEncipherment" "extendedKeyUsage=serverAuth" "subjectAltName=DNS:trajectory-e2e.test,DNS:minio,DNS:localhost,IP:127.0.0.1" > /tmp/leaf.cnf && openssl x509 -req -in /tmp/leaf.csr -CA /out/ca.crt -CAkey /out/ca.key -CAcreateserial -out /out/public.crt -days 1 -extfile /tmp/leaf.cnf -extensions v3_leaf >/dev/null 2>&1 && rm -f /tmp/leaf.csr /tmp/leaf.cnf /out/ca.srl'
     }
 }
 
