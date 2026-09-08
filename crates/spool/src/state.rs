@@ -129,10 +129,10 @@ impl SpoolDirectoryManager {
         if dir.exists() {
             for entry in fs::read_dir(dir)? {
                 let entry = entry?;
-                if entry.file_type()?.is_dir() {
-                    if let Some(name) = entry.file_name().to_str() {
-                        sessions.push(name.to_string());
-                    }
+                if entry.file_type()?.is_dir()
+                    && let Some(name) = entry.file_name().to_str()
+                {
+                    sessions.push(name.to_string());
                 }
             }
         }

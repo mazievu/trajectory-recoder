@@ -407,7 +407,8 @@ mod tests {
 
     #[test]
     fn uploader_companion_must_be_a_sibling_client_executable() {
-        let supervisor = Path::new(r"C:\\Program Files\\TrajectoryRecorder\\trajectory-supervisor.exe");
+        let supervisor =
+            Path::new(r"C:\\Program Files\\TrajectoryRecorder\\trajectory-supervisor.exe");
         let uploader =
             uploader_companion_path(supervisor).expect("supervisor has a parent directory");
         assert_eq!(

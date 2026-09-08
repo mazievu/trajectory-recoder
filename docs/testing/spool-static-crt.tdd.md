@@ -17,6 +17,10 @@ Derived from the client self-contained implementation plan in this session.
 | GREEN | `cargo test -p spool --test test_adversarial_spool --locked` | PASS: 5 tests. |
 | Regression | `cargo test -p spool --lib --locked` | PASS: 2 tests. |
 | Path compatibility | `cargo test -p supervisor uploader_companion_must_be_a_sibling_client_executable --locked` | PASS: 1 test. |
+| Tier 1 | `cargo test -p tier1-feature --test test_f11_ndjson_persistence --test test_f21_session_lifecycle --test test_f22_spool_state_machine --test test_f27_spool_and_archive --locked` | PASS: 4 tests. |
+| Upload pipeline | `cargo test -p uploader --test test_uploader_pipeline --locked` | PASS: 1 test, including `SESSION_ACCEPTED`. |
+| Release | `cargo build --release --locked --target x86_64-pc-windows-msvc -p capture-agent -p supervisor -p uploader -p browser-host -p desktop-ui -p harness-app -p e2e-runner` | PASS with existing warnings only. |
+| PE imports | `dumpbin /headers`, `/dependents`, `/imports` for all release executables | PASS: x64; no VCRUNTIME, MSVCP, CONCRT, UCRTBASE, or API-MS-WIN-CRT imports. |
 
 ## Guarantees
 
@@ -28,4 +32,4 @@ Derived from the client self-contained implementation plan in this session.
 
 ## Coverage and remaining gates
 
-The workspace has no configured Rust coverage target. Release build/import checks, Tier 1 tests, and the required clean Win11 VM smoke test are recorded after they run; the VM gate must pass before pushing `main`.
+The workspace has no configured Rust coverage target. The clean Win11 x64 VM smoke test remains required and has not run because no clean VM is available from this host; `main` must not be pushed until it passes.
