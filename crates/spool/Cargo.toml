@@ -1,0 +1,17 @@
+[package]
+name = "spool"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "6-stage spool state machine, startup crash recovery scanner, and 4-tier disk protection"
+
+[dependencies]
+core-types = { workspace = true }
+config = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

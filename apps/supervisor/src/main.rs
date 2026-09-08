@@ -407,12 +407,12 @@ mod tests {
 
     #[test]
     fn uploader_companion_must_be_a_sibling_client_executable() {
-        let supervisor = Path::new(r"C:\\Program Files\\Trajectory\\trajectory-supervisor.exe");
+        let supervisor = Path::new(r"C:\\Program Files\\TrajectoryRecorder\\trajectory-supervisor.exe");
         let uploader =
             uploader_companion_path(supervisor).expect("supervisor has a parent directory");
         assert_eq!(
             uploader,
-            PathBuf::from(r"C:\\Program Files\\Trajectory\\trajectory-uploader.exe")
+            PathBuf::from(r"C:\\Program Files\\TrajectoryRecorder\\trajectory-uploader.exe")
         );
         assert!(validate_uploader_child_config(&uploader).is_ok());
         assert!(validate_uploader_child_config(Path::new("other.exe")).is_err());

@@ -10,7 +10,7 @@ Cargo.lock.tmp
 .env
 .env.*
 !.env.example
-spool/
+/spool/
 logs/
 .agents/
 /tests/deployment/.artifacts/
