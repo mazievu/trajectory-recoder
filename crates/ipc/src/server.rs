@@ -120,7 +120,7 @@ impl IpcServer {
     ) -> Result<NamedPipeServer, IpcError> {
         let mut opts = ServerOptions::new();
         opts.first_pipe_instance(first_instance);
-        opts.max_instances(255);
+        opts.max_instances(254);
         opts.in_buffer_size(65536);
         opts.out_buffer_size(65536);
 

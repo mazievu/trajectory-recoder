@@ -14,3 +14,4 @@ Cargo.lock.tmp
 logs/
 .agents/
 /tests/deployment/.artifacts/
+/dist/

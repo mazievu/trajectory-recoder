@@ -295,4 +295,18 @@ impl SessionManager {
 
         Ok(())
     }
+
+    /// Flush all pending NDJSON buffers and SQLite WAL to disk.
+    pub fn flush(&mut self) -> std::io::Result<()> {
+        if let Some(ref mut w) = self.raw_ndjson_writer {
+            w.flush_sync()?;
+        }
+        if let Some(ref mut w) = self.normalized_ndjson_writer {
+            w.flush_sync()?;
+        }
+        if let Some(ref db) = self.db {
+            let _ = db.checkpoint_wal();
+        }
+        Ok(())
+    }
 }

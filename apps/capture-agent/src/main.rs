@@ -58,8 +58,15 @@ impl RuntimeIdentity {
     }
 }
 
-fn capture_config_path(args: &[String]) -> Result<PathBuf, String> {
-    let mut path = None;
+#[derive(Debug, Clone, Default)]
+struct CaptureCliOptions {
+    config_path: Option<PathBuf>,
+    raw_log_console: bool,
+    show_help: bool,
+}
+
+fn parse_cli_options(args: &[String]) -> Result<CaptureCliOptions, String> {
+    let mut options = CaptureCliOptions::default();
     let mut index = 1;
     while index < args.len() {
         match args[index].as_str() {
@@ -69,18 +76,48 @@ fn capture_config_path(args: &[String]) -> Result<PathBuf, String> {
                     .get(index)
                     .filter(|value| !value.trim().is_empty())
                     .ok_or_else(|| "--config requires a client.env path".to_string())?;
-                if path.replace(PathBuf::from(value)).is_some() {
+                if options.config_path.replace(PathBuf::from(value)).is_some() {
                     return Err("--config may only be provided once".to_string());
                 }
             }
+            "--raw-log" | "-r" => {
+                options.raw_log_console = true;
+            }
             "--help" | "-h" => {
-                return Err("Usage: trajectory-agent [--config C:\\ProgramData\\TrajectoryRecorder\\client.env]".to_string());
+                options.show_help = true;
             }
             other => return Err(format!("unknown capture-agent argument: {other}")),
         }
         index += 1;
     }
-    Ok(path.unwrap_or_else(default_client_config_path))
+    Ok(options)
+}
+
+fn resolve_config_path(explicit_path: Option<PathBuf>) -> PathBuf {
+    if let Some(path) = explicit_path {
+        return path;
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(parent) = exe.parent() {
+            let candidate = parent.join("client.env");
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+    let local = PathBuf::from("client.env");
+    if local.is_file() {
+        return local;
+    }
+    default_client_config_path()
+}
+
+fn capture_config_path(args: &[String]) -> Result<PathBuf, String> {
+    let opts = parse_cli_options(args)?;
+    if opts.show_help {
+        return Err("Usage: trajectory-agent [--config C:\\ProgramData\\TrajectoryRecorder\\client.env] [--raw-log]".to_string());
+    }
+    Ok(resolve_config_path(opts.config_path))
 }
 
 /// The only events that warrant an expensive UI Automation lookup.
@@ -126,17 +163,49 @@ async fn target_metadata_for_event(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().collect();
+    let cli_opts = match parse_cli_options(&args) {
+        Ok(opts) => opts,
+        Err(err) => {
+            eprintln!("Error: {err}");
+            eprintln!("Usage: trajectory-agent [--config <path>] [--raw-log]");
+            std::process::exit(1);
+        }
+    };
+
+    if cli_opts.show_help {
+        println!("Trajectory Desktop Capture Agent (Edition 2024)");
+        println!("Usage: trajectory-agent [OPTIONS]");
+        println!("Options:");
+        println!("  --config <path>    Path to client.env configuration file");
+        println!("  --raw-log, -r      Stream raw events directly to console (stdout)");
+        println!("  --help, -h         Show this help message");
+        return Ok(());
+    }
+
     let _guard = init_diagnostics(&DiagnosticsConfig::default());
     info!("Starting Trajectory Desktop Capture Agent (Edition 2024)...");
 
-    let args: Vec<String> = std::env::args().collect();
-    let config_path = capture_config_path(&args)?;
+    let print_raw_log = cli_opts.raw_log_console
+        || std::env::var("TRAJECTORY_RAW_LOG")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+
+    let config_path = resolve_config_path(cli_opts.config_path);
+    info!("Using configuration: {}", config_path.display());
     let runtime_config = ClientRuntimeConfig::from_file(&config_path)?;
     let identity = RuntimeIdentity::from_config(&runtime_config);
     let machine_id = identity.machine_id.as_str();
     let user_id = identity.user_id.as_str();
     let windows_session_id = 1u32;
     let is_running = Arc::new(AtomicBool::new(true));
+    let is_running_ctrlc = is_running.clone();
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            info!("Ctrl+C signal received. Shutting down capture agent gracefully...");
+            is_running_ctrlc.store(false, Ordering::Relaxed);
+        }
+    });
 
     // 1. Initialize Event Bus with Priority Shedding
     let event_bus = Arc::new(EventBus::new(EventBusConfig::default()));
@@ -149,10 +218,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let global_seq = global_id_allocator.current_atomic();
 
     let mut session_mgr = SessionManager::start(&spool_root, machine_id, user_id)?;
-    info!(
-        "Active Session: {}",
-        session_mgr.current_session_id().as_str()
-    );
+    let active_session = session_mgr.current_session_id().as_str();
+    info!("Active Session: {}", active_session);
+    let raw_log_file = spool_root
+        .join("recording")
+        .join(active_session)
+        .join("events.raw.ndjson");
+    info!("Raw event log file: {}", raw_log_file.display());
+    if print_raw_log {
+        info!("Real-time console raw log streaming: ENABLED");
+    }
 
     // 3. Initialize UIA Inspector & Privacy Engine
     let uia_inspector = UiaInspector::new();
@@ -266,6 +341,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // becoming a reconstructable keyboard log.
                 privacy_engine.redact_raw_event(&mut raw_event);
                 let _ = session_mgr.write_raw_event(&raw_event);
+                if print_raw_log {
+                    if let Ok(json_str) = serde_json::to_string(&raw_event) {
+                        println!("[RAW LOG] {json_str}");
+                    }
+                }
             }
             Err(_) => {
                 // Timeout: periodic flush of typing/scroll burst aggregators
@@ -290,6 +370,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    let _ = session_mgr.flush();
     info!("Trajectory Desktop Capture Agent stopped cleanly.");
     Ok(())
 }
@@ -383,5 +464,28 @@ mod tests {
             ("SPOOL_DIR", "spool"),
         ]);
         assert!(relative_spool.is_err());
+    }
+
+    #[test]
+    fn cli_options_parsing_supports_raw_log_and_config() {
+        let args = vec![
+            "trajectory-agent".to_string(),
+            "--raw-log".to_string(),
+            "--config".to_string(),
+            r"C:\Custom\client.env".to_string(),
+        ];
+        let opts = parse_cli_options(&args).expect("should parse CLI options");
+        assert!(opts.raw_log_console);
+        assert_eq!(opts.config_path, Some(PathBuf::from(r"C:\Custom\client.env")));
+
+        let path = capture_config_path(&args).expect("capture_config_path");
+        assert_eq!(path, PathBuf::from(r"C:\Custom\client.env"));
+    }
+
+    #[test]
+    fn cli_options_parsing_supports_short_flag_r() {
+        let args = vec!["trajectory-agent".to_string(), "-r".to_string()];
+        let opts = parse_cli_options(&args).expect("should parse -r");
+        assert!(opts.raw_log_console);
     }
 }

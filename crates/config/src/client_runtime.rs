@@ -57,6 +57,7 @@ impl ClientRuntimeConfig {
     pub fn from_file(path: impl AsRef<Path>) -> Result<Self, ClientRuntimeConfigError> {
         let content = fs::read_to_string(path.as_ref())
             .map_err(|error| ClientRuntimeConfigError::Io(error.to_string()))?;
+        let content = content.strip_prefix('\u{feff}').unwrap_or(&content);
         let mut pairs = Vec::new();
         for (index, line) in content.lines().enumerate() {
             let trimmed = line.trim();
