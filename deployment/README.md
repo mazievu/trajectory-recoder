@@ -32,12 +32,20 @@ Before starting it, obtain a certificate for `PUBLIC_HOSTNAME` and set
 read-only mounts; no private key is copied into the image or repository.
 
 ```powershell
-docker compose --env-file deployment/server.env -f server/docker-compose.yml up -d --build
+# Quick Start for Standalone Server (PostgreSQL + MinIO HTTPS + Server + Caddy Proxy):
+powershell -ExecutionPolicy Bypass -File deployment/Start-Server.ps1
+
+# Check Stack & Machine Status:
+powershell -ExecutionPolicy Bypass -File deployment/Get-ServerStatus.ps1
+
+# Stop Server Stack:
+powershell -ExecutionPolicy Bypass -File deployment/Stop-Server.ps1
 ```
 
-This starts the ingestion server and PostgreSQL. It requires an externally
-managed **HTTPS** S3-compatible object store in `S3_ENDPOINT`; it does not use
-the bundled MinIO container.
+Or run Docker Compose manually:
+```powershell
+docker compose --env-file deployment/server.env -p trajectory -f deployment/docker-compose.server.yml up -d
+```
 
 ### Certificate options
 

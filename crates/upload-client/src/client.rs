@@ -137,13 +137,34 @@ impl UploadClient {
     pub fn new(server_base_url: impl Into<String>) -> Self {
         Self::with_config(server_base_url, UploadClientConfig::default())
     }
-
     pub fn with_config(server_base_url: impl Into<String>, config: UploadClientConfig) -> Self {
-        let client = Client::builder()
+        let mut builder = Client::builder()
             .timeout(config.request_timeout)
-            .connect_timeout(config.connect_timeout)
-            .build()
-            .unwrap_or_else(|_| Client::new());
+            .connect_timeout(config.connect_timeout);
+
+        let ca_candidates = [
+            std::path::PathBuf::from("ca.crt"),
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|dir| dir.join("ca.crt")))
+                .unwrap_or_default(),
+            std::path::PathBuf::from(r"C:\ProgramData\TrajectoryRecorder\ca.crt"),
+            std::path::PathBuf::from("deployment/tls/ca.crt"),
+        ];
+
+        for candidate in &ca_candidates {
+            if candidate.is_file() {
+                if let Ok(pem_bytes) = std::fs::read(candidate) {
+                    if let Ok(cert) = reqwest::Certificate::from_pem(&pem_bytes) {
+                        tracing::info!("Loaded custom root CA from {}", candidate.display());
+                        builder = builder.add_root_certificate(cert);
+                        break;
+                    }
+                }
+            }
+        }
+
+        let client = builder.build().unwrap_or_else(|_| Client::new());
 
         Self {
             client,

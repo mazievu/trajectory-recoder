@@ -34,7 +34,28 @@ fn uploader_config_path(args: &[String]) -> Result<PathBuf, String> {
             other => return Err(format!("unknown uploader argument: {other}")),
         }
     }
-    Ok(config_path.unwrap_or_else(default_client_config_path))
+    Ok(resolve_uploader_config_path(config_path))
+}
+
+fn resolve_uploader_config_path(explicit_path: Option<PathBuf>) -> PathBuf {
+    if let Some(path) = explicit_path {
+        return path;
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let candidate = dir.join("client.env");
+            if candidate.is_file() {
+                return candidate;
+            }
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        let candidate = cwd.join("client.env");
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+    default_client_config_path()
 }
 
 fn load_uploader_runtime_config(
@@ -62,11 +83,40 @@ fn token_path(runtime: &ClientRuntimeConfig) -> PathBuf {
 
 fn load_device_token(path: &Path) -> Result<Option<String>, String> {
     match fs::read(path) {
-        Ok(ciphertext) => unprotect_token_for_current_user(&ciphertext).map(Some),
+        Ok(ciphertext) => match unprotect_token_for_current_user(&ciphertext) {
+            Ok(token) => Ok(Some(token)),
+            Err(error) => {
+                warn!("Stored device token could not be decrypted ({error}); deleting invalid token to re-register");
+                let _ = fs::remove_file(path);
+                Ok(None)
+            }
+        },
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(error) => Err(format!(
-            "could not read protected device credential: {error}"
-        )),
+        Err(error) => {
+            warn!("Could not read protected device credential ({error}); will re-register");
+            Ok(None)
+        }
+    }
+}
+
+#[cfg(windows)]
+fn acquire_single_instance_lock() -> Option<windows::Win32::Foundation::HANDLE> {
+    use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
+    use windows::Win32::System::Threading::CreateMutexW;
+    use windows::core::w;
+
+    unsafe {
+        let handle = CreateMutexW(None, true, w!("Local\\TrajectoryUploaderSingleInstance"));
+        match handle {
+            Ok(h) => {
+                if GetLastError() == ERROR_ALREADY_EXISTS {
+                    None
+                } else {
+                    Some(h)
+                }
+            }
+            Err(_) => None,
+        }
     }
 }
 
@@ -157,6 +207,15 @@ fn unprotect_token_for_current_user(_ciphertext: &[u8]) -> Result<String, String
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(windows)]
+    let _single_instance_guard = match acquire_single_instance_lock() {
+        Some(guard) => guard,
+        None => {
+            info!("Another instance of trajectory-uploader is already running. Exiting cleanly.");
+            return Ok(());
+        }
+    };
+
     let _guard = init_diagnostics(&DiagnosticsConfig::default());
     let args: Vec<String> = std::env::args().collect();
     let (runtime, config_path) = load_uploader_runtime_config(&args)?;
@@ -174,19 +233,44 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "a client needs DEVICE_TOKEN, a DPAPI credential, or TRAJECTORY_ENROLLMENT_TOKEN"
                 .to_string()
         })?;
-        let registration = client
-            .register_machine(&RegisterMachineRequest {
-                machine_id: runtime.machine_id.clone(),
-                hostname: machine_hostname(&runtime.machine_id),
-                os_version: std::env::consts::OS.to_string(),
-                registration_token: enrollment_token,
-            })
-            .await?;
-        if registration.device_jwt.trim().is_empty() {
-            return Err("server returned an empty device credential".into());
+        let reg_req = RegisterMachineRequest {
+            machine_id: runtime.machine_id.clone(),
+            hostname: machine_hostname(&runtime.machine_id),
+            os_version: std::env::consts::OS.to_string(),
+            registration_token: enrollment_token,
+        };
+
+        info!(
+            machine_id = %runtime.machine_id,
+            server = %runtime.server_url,
+            "Registering machine with ingestion server..."
+        );
+
+        let mut retry_count = 0;
+        loop {
+            match client.register_machine(&reg_req).await {
+                Ok(registration) if !registration.device_jwt.trim().is_empty() => {
+                    info!("Machine successfully registered with ingestion server.");
+                    if let Err(e) = store_device_token(&credential_path, &registration.device_jwt) {
+                        warn!("Could not store device credential to disk: {e}");
+                    }
+                    client.set_device_token(registration.device_jwt);
+                    break;
+                }
+                Ok(_) => {
+                    warn!("Server returned empty device credential; retrying in 5s...");
+                }
+                Err(error) => {
+                    retry_count += 1;
+                    warn!(
+                        retry = retry_count,
+                        error = %error,
+                        "Machine registration failed; will retry in 5s"
+                    );
+                }
+            }
+            tokio::time::sleep(Duration::from_secs(5)).await;
         }
-        store_device_token(&credential_path, &registration.device_jwt)?;
-        client.set_device_token(registration.device_jwt);
     }
 
     info!(
@@ -589,5 +673,16 @@ mod tests {
             load_device_token(&path).unwrap().as_deref(),
             Some("device-jwt-secret")
         );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn corrupted_device_token_is_cleaned_up_and_returns_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("device-token.dpapi");
+        fs::write(&path, b"invalid-garbage-ciphertext").unwrap();
+
+        assert_eq!(load_device_token(&path).unwrap(), None);
+        assert!(!path.exists(), "Corrupted token file should have been removed");
     }
 }

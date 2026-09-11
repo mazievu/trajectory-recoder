@@ -296,6 +296,55 @@ impl SessionManager {
         Ok(())
     }
 
+    /// Finalize the active session and move it to `finalizing/` so the uploader can ingest it.
+    pub fn finalize_active_session(&mut self) -> std::io::Result<SessionId> {
+        let end_ts = DualTimestamp::now();
+        if let Some(ref db) = self.db {
+            let _ = db.finalize_session_meta(
+                &self.current_session_id,
+                &end_ts,
+                self.event_count,
+                self.action_count,
+                "FINALIZED",
+            );
+            let _ = db.checkpoint_wal();
+        }
+        if let Some(ref mut w) = self.raw_ndjson_writer {
+            let _ = w.flush_sync();
+        }
+        if let Some(ref mut w) = self.normalized_ndjson_writer {
+            let _ = w.flush_sync();
+        }
+
+        let finalized_manifest = SessionManifest {
+            schema: "gtf.trajectory".to_string(),
+            schema_version: "1.0".to_string(),
+            session_id: self.current_session_id.as_str().to_string(),
+            machine_id: self.machine_id.clone(),
+            user_id: self.user_id.clone(),
+            started_at: self.started_at.wall_time_utc.to_rfc3339(),
+            ended_at: Some(end_ts.wall_time_utc.to_rfc3339()),
+            status: "FINALIZED".to_string(),
+            event_count: self.event_count,
+            action_count: self.action_count,
+        };
+        let _ = Self::write_manifest(&self.active_dir, &finalized_manifest);
+
+        drop(self.db.take());
+        drop(self.raw_ndjson_writer.take());
+        drop(self.normalized_ndjson_writer.take());
+
+        let finalizing_dir = self
+            .spool_root
+            .join("finalizing")
+            .join(self.current_session_id.as_str());
+        if let Some(parent) = finalizing_dir.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        std::fs::rename(&self.active_dir, &finalizing_dir)?;
+        Ok(self.current_session_id.clone())
+    }
+
     /// Flush all pending NDJSON buffers and SQLite WAL to disk.
     pub fn flush(&mut self) -> std::io::Result<()> {
         if let Some(ref mut w) = self.raw_ndjson_writer {

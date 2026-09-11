@@ -14,11 +14,11 @@ use input_win::manager::InputHookManager;
 use ipc::{IpcMessage, IpcServer};
 use privacy::engine::{PrivacyEngine, PrivacyPolicy};
 use session::manager::SessionManager;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use uia_win::inspector::UiaInspector;
 use window_win::tracker::WindowTracker;
 
@@ -94,22 +94,58 @@ fn parse_cli_options(args: &[String]) -> Result<CaptureCliOptions, String> {
 }
 
 fn resolve_config_path(explicit_path: Option<PathBuf>) -> PathBuf {
-    if let Some(path) = explicit_path {
-        return path;
-    }
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(parent) = exe.parent() {
-            let candidate = parent.join("client.env");
+    let resolved = if let Some(path) = explicit_path {
+        path
+    } else if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let candidate = dir.join("client.env");
             if candidate.is_file() {
-                return candidate;
+                candidate
+            } else if let Ok(cwd) = std::env::current_dir() {
+                let candidate = cwd.join("client.env");
+                if candidate.is_file() {
+                    candidate
+                } else {
+                    default_client_config_path()
+                }
+            } else {
+                default_client_config_path()
             }
+        } else {
+            default_client_config_path()
         }
+    } else {
+        default_client_config_path()
+    };
+    std::path::absolute(&resolved).unwrap_or(resolved)
+}
+
+fn spawn_uploader_companion(config_path: &Path) -> Option<tokio::process::Child> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    let uploader = dir.join("trajectory-uploader.exe");
+    if !uploader.is_file() {
+        return None;
     }
-    let local = PathBuf::from("client.env");
-    if local.is_file() {
-        return local;
+    info!("Starting background uploader companion: {}", uploader.display());
+    #[cfg(windows)]
+    {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        let mut cmd = tokio::process::Command::new(uploader);
+        cmd.arg("--config").arg(config_path);
+        cmd.current_dir(dir);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        cmd.kill_on_drop(true);
+        cmd.spawn().ok()
     }
-    default_client_config_path()
+    #[cfg(not(windows))]
+    {
+        let mut cmd = tokio::process::Command::new(uploader);
+        cmd.arg("--config").arg(config_path);
+        cmd.current_dir(dir);
+        cmd.kill_on_drop(true);
+        cmd.spawn().ok()
+    }
 }
 
 fn capture_config_path(args: &[String]) -> Result<PathBuf, String> {
@@ -193,6 +229,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config_path = resolve_config_path(cli_opts.config_path);
     info!("Using configuration: {}", config_path.display());
+    let uploader_companion_task = {
+        let companion_cfg = config_path.clone();
+        tokio::spawn(async move {
+            loop {
+                if let Some(mut child) = spawn_uploader_companion(&companion_cfg) {
+                    let _ = child.wait().await;
+                    warn!("Companion uploader process exited. Restarting in 5s...");
+                }
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        })
+    };
     let runtime_config = ClientRuntimeConfig::from_file(&config_path)?;
     let identity = RuntimeIdentity::from_config(&runtime_config);
     let machine_id = identity.machine_id.as_str();
@@ -370,7 +418,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let _ = session_mgr.flush();
+    if let Ok(id) = session_mgr.finalize_active_session() {
+        info!("Active session {} finalized for upload", id.as_str());
+    } else {
+        let _ = session_mgr.flush();
+    }
+    uploader_companion_task.abort();
+    info!("Flushing pending uploads via companion uploader...");
+    tokio::time::sleep(Duration::from_secs(3)).await;
     info!("Trajectory Desktop Capture Agent stopped cleanly.");
     Ok(())
 }

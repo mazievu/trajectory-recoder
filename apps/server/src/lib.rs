@@ -1,7 +1,7 @@
 //! Trajectory Ingestion Server library (Axum + PostgreSQL + S3).
 
 use axum::Router;
-use axum::extract::{Path, State};
+use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::{
     HeaderMap, StatusCode,
     header::{CACHE_CONTROL, SET_COOKIE},
@@ -607,7 +607,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/sessions", post(initiate_session_handler))
         .route(
             "/api/v1/sessions/:session_id/chunks/:chunk_index",
-            put(upload_chunk_handler),
+            put(upload_chunk_handler).layer(DefaultBodyLimit::max(512 * 1024 * 1024)),
         )
         .route(
             "/api/v1/sessions/:session_id/upload-status",

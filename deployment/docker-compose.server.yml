@@ -1,0 +1,102 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: trajectory-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    ports:
+      - "5432:5432"
+    volumes:
+      - trajectory-postgres-data:/var/lib/postgresql/data
+      - ../server/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:RELEASE.2024-08-17T01-24-54Z
+    container_name: trajectory-minio
+    restart: unless-stopped
+    command: server /data --address ":9000" --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - trajectory-minio-data:/data
+      - ./tls:/root/.minio/certs:ro
+
+  minio-init:
+    image: minio/mc:RELEASE.2024-07-26T13-08-44Z
+    container_name: trajectory-minio-init
+    depends_on:
+      - minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD}
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET}
+    entrypoint:
+      - /bin/sh
+      - -ec
+      - |
+        attempt=0
+        until mc alias set --insecure e2e https://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"; do
+          attempt=$$((attempt + 1))
+          test "$$attempt" -lt 60 || {
+            echo "MinIO did not accept its configured HTTPS credentials after $$attempt attempts" >&2
+            exit 1
+          }
+          sleep 1
+        done
+        mc mb --ignore-existing --insecure "e2e/$$S3_BUCKET" >/dev/null
+        echo "MinIO bucket $$S3_BUCKET initialized successfully."
+
+  server:
+    image: trajectory-server:verification
+    container_name: trajectory-server
+    restart: unless-stopped
+    environment:
+      DEPLOYMENT_ROLE: ${DEPLOYMENT_ROLE:?set DEPLOYMENT_ROLE=server}
+      DATABASE_URL: ${DATABASE_URL:?set DATABASE_URL}
+      S3_ENDPOINT: ${S3_ENDPOINT:?set an HTTPS S3_ENDPOINT}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY}
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET}
+      S3_REGION: ${S3_REGION:?set S3_REGION}
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET}
+      ENROLLMENT_TOKEN: ${ENROLLMENT_TOKEN:?set ENROLLMENT_TOKEN}
+      DASHBOARD_API_TOKEN: ${DASHBOARD_API_TOKEN:?set DASHBOARD_API_TOKEN}
+      S3_CA_CERT_PATH: /run/trajectory-certs/ca.crt
+    volumes:
+      - ./tls/ca.crt:/run/trajectory-certs/ca.crt:ro
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  proxy:
+    image: caddy:2.10-alpine
+    container_name: trajectory-proxy
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./tls/public.crt:/etc/caddy/tls/tls.crt:ro
+      - ./tls/private.key:/etc/caddy/tls/tls.key:ro
+    depends_on:
+      - server
+
+volumes:
+  trajectory-postgres-data:
+  trajectory-minio-data:

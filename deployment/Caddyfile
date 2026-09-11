@@ -1,0 +1,7 @@
+:443 {
+	log
+	tls /etc/caddy/tls/tls.crt /etc/caddy/tls/tls.key
+	redir / /dashboard/
+	rewrite /assets/* /dashboard{uri}
+	reverse_proxy server:8080
+}
