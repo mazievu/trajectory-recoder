@@ -5,8 +5,12 @@ use archive::{SessionArchiveManifest, chunk_and_encrypt_archive, create_tar_zstd
 use config::{ClientRuntimeConfig, default_client_config_path};
 use diagnostics::{DiagnosticsConfig, init_diagnostics};
 use spool::{SpoolDirectoryManager, SpoolState};
+use std::collections::hash_map::DefaultHasher;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 use tracing::{error, info, warn};
 use upload_client::{
@@ -205,6 +209,105 @@ fn unprotect_token_for_current_user(_ciphertext: &[u8]) -> Result<String, String
     Err("protected device credentials are only supported on Windows clients".to_string())
 }
 
+fn machine_upload_jitter_secs(machine_id: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    machine_id.hash(&mut hasher);
+    let hash = hasher.finish();
+    (hash % 60) + 5
+}
+
+fn should_delay_upload(session_dir: &Path, machine_id: &str) -> bool {
+    let Ok(metadata) = fs::metadata(session_dir) else {
+        return false;
+    };
+    let Ok(modified) = metadata.modified() else {
+        return false;
+    };
+    let Ok(elapsed) = modified.elapsed() else {
+        return false;
+    };
+    let jitter = machine_upload_jitter_secs(machine_id);
+    elapsed.as_secs() < jitter
+}
+
+fn resolve_session_staging_dir(spool_root: &Path, session_dir: &Path, session_id: &str) -> PathBuf {
+    let dedicated = spool_root.join("_staging").join(session_id);
+    if dedicated.exists() {
+        return dedicated;
+    }
+    let legacy = session_dir.join("_packaging");
+    if legacy.exists() {
+        return legacy;
+    }
+    dedicated
+}
+
+fn run_spool_janitor(spool_mgr: &SpoolDirectoryManager) {
+    info!("Running Spool Janitor to reclaim client disk space...");
+
+    // 1. Purge all uploaded sessions
+    if let Ok(uploaded_sessions) = spool_mgr.list_sessions(SpoolState::Uploaded) {
+        for sid in uploaded_sessions {
+            let path = spool_mgr.session_path(SpoolState::Uploaded, &sid);
+            if let Err(e) = fs::remove_dir_all(&path) {
+                warn!("Janitor failed to remove uploaded session {}: {}", sid, e);
+            } else {
+                info!("Janitor purged uploaded session: {}", sid);
+            }
+        }
+    }
+
+    // 2. Purge failed sessions older than 4 hours
+    if let Ok(failed_sessions) = spool_mgr.list_sessions(SpoolState::Failed) {
+        let cutoff = std::time::SystemTime::now() - Duration::from_secs(4 * 3600);
+        for sid in failed_sessions {
+            let path = spool_mgr.session_path(SpoolState::Failed, &sid);
+            let is_old = fs::metadata(&path)
+                .and_then(|m| m.modified())
+                .map(|t| t < cutoff)
+                .unwrap_or(true);
+            if is_old {
+                if let Err(e) = fs::remove_dir_all(&path) {
+                    warn!("Janitor failed to remove old failed session {}: {}", sid, e);
+                } else {
+                    info!("Janitor purged old failed session: {}", sid);
+                }
+            }
+        }
+    }
+
+    // 3. Purge any legacy _packaging folders inside active stages
+    for state in [SpoolState::Finalizing, SpoolState::PendingUpload, SpoolState::Uploading] {
+        if let Ok(sessions) = spool_mgr.list_sessions(state) {
+            for sid in sessions {
+                let session_dir = spool_mgr.session_path(state, &sid);
+                let legacy_pkg = session_dir.join("_packaging");
+                if legacy_pkg.exists() {
+                    let _ = fs::remove_dir_all(&legacy_pkg);
+                    info!("Janitor purged legacy _packaging inside session {}", sid);
+                }
+            }
+        }
+    }
+
+    // 4. Purge orphaned _staging folders
+    let staging_root = spool_mgr.base_path().join("_staging");
+    if staging_root.exists() {
+        if let Ok(entries) = fs::read_dir(&staging_root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let is_old = fs::metadata(&path)
+                    .and_then(|m| m.modified())
+                    .map(|t| t < std::time::SystemTime::now() - Duration::from_secs(2 * 3600))
+                    .unwrap_or(true);
+                if is_old {
+                    let _ = fs::remove_dir_all(&path);
+                }
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(windows)]
@@ -215,6 +318,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Ok(());
         }
     };
+
+    #[cfg(windows)]
+    cleanup_stale_instances("trajectory-uploader.exe");
 
     let _guard = init_diagnostics(&DiagnosticsConfig::default());
     let args: Vec<String> = std::env::args().collect();
@@ -280,9 +386,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "Client uploader is running in the background"
     );
 
+    // Run Spool Janitor on startup to immediately reclaim client disk space
+    run_spool_janitor(&spool_mgr);
+
+    let auto_restart_enabled = Arc::new(AtomicBool::new(true));
+    let watchdog_auto_restart = auto_restart_enabled.clone();
+    let watchdog_config_path = config_path.clone();
+
+    // Watchdog background task: monitors trajectory-agent.exe and auto-respawns it if killed
+    tokio::spawn(async move {
+        // Initial delay to allow agent to start up normally
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        let mut last_spawn = Instant::now() - Duration::from_secs(10);
+        loop {
+            tokio::time::sleep(Duration::from_secs(2)).await;
+            if watchdog_auto_restart.load(Ordering::Relaxed) {
+                if !is_process_running("trajectory-agent.exe") {
+                    if last_spawn.elapsed() >= Duration::from_secs(5) {
+                        warn!("trajectory-agent.exe is NOT running! Watchdog auto-respawning agent...");
+                        spawn_agent_companion(&watchdog_config_path);
+                        last_spawn = Instant::now();
+                    }
+                }
+            }
+        }
+    });
+
     let mut last_heartbeat = Instant::now() - Duration::from_secs(30);
+    let mut last_janitor_run = Instant::now();
 
     loop {
+        // Run janitor every 15 minutes to keep disk clean
+        if last_janitor_run.elapsed() >= Duration::from_secs(15 * 60) {
+            run_spool_janitor(&spool_mgr);
+            last_janitor_run = Instant::now();
+        }
+
         if last_heartbeat.elapsed() >= Duration::from_secs(30) {
             let active_session_id = spool_mgr
                 .list_sessions(SpoolState::Recording)
@@ -293,8 +432,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 disk_usage_pct: disk_usage_percent(&spool_root),
                 active_session_id,
             };
-            if let Err(error) = client.send_heartbeat(&heartbeat).await {
-                warn!(machine_id = %runtime.machine_id, error = %error, "client heartbeat failed; will retry");
+            match client.send_heartbeat(&heartbeat).await {
+                Ok(resp) => {
+                    auto_restart_enabled.store(resp.auto_restart, Ordering::Relaxed);
+                    sync_auto_restart_flag(&spool_root, resp.auto_restart);
+                }
+                Err(error) => {
+                    warn!(machine_id = %runtime.machine_id, error = %error, "client heartbeat failed; will retry");
+                }
             }
             last_heartbeat = Instant::now();
         }
@@ -307,14 +452,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // 2. Process pending uploads (packaging & chunking)
-        if let Ok(pending_sessions) = spool_mgr.list_sessions(SpoolState::PendingUpload) {
+        // 2. Process pending uploads (packaging & chunking) - orderly sequential queue with jitter
+        if let Ok(mut pending_sessions) = spool_mgr.list_sessions(SpoolState::PendingUpload) {
+            pending_sessions.sort();
+
             for sid in pending_sessions {
-                info!("Packaging session for upload: {}", sid);
                 let session_dir = spool_mgr.session_path(SpoolState::PendingUpload, &sid);
-                let staging_dir = session_dir.join("_packaging");
+
+                // Check if we should stagger upload to prevent thundering herd
+                if should_delay_upload(&session_dir, &runtime.machine_id) {
+                    let jitter = machine_upload_jitter_secs(&runtime.machine_id);
+                    info!(
+                        "Staggering packaging for session {} (jitter window: {}s)",
+                        sid, jitter
+                    );
+                    continue;
+                }
+
+                info!("Packaging session for upload: {}", sid);
+                // Isolated staging outside session_dir prevents recursive compression bomb
+                let staging_dir = spool_root.join("_staging").join(&sid);
+                let _ = fs::remove_dir_all(&staging_dir);
                 let archive_file = staging_dir.join("session.tar.zst");
                 let chunks_dir = staging_dir.join("chunks");
+                if let Err(e) = fs::create_dir_all(&chunks_dir) {
+                    error!("Failed to create staging chunks dir {}: {}", chunks_dir.display(), e);
+                    continue;
+                }
 
                 // Compress session directory
                 match create_tar_zstd_archive(&session_dir, &archive_file, 3) {
@@ -331,6 +495,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             file_list,
                         ) {
                             Ok(manifest) => {
+                                // Once chunked, immediately delete the monolithic archive to save disk space
+                                let _ = fs::remove_file(&archive_file);
+
                                 match spool_mgr.transition(
                                     &sid,
                                     SpoolState::PendingUpload,
@@ -352,6 +519,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                             Err(e) => {
                                 error!("Failed to chunk session {}: {}", sid, e);
+                                let _ = fs::remove_dir_all(&staging_dir);
                                 let _ = spool_mgr.transition(
                                     &sid,
                                     SpoolState::PendingUpload,
@@ -362,6 +530,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     Err(e) => {
                         error!("Failed to compress session {}: {}", sid, e);
+                        let _ = fs::remove_dir_all(&staging_dir);
                         let _ = spool_mgr.transition(
                             &sid,
                             SpoolState::PendingUpload,
@@ -369,12 +538,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         );
                     }
                 }
+
+                // Process only 1 packaging per loop to avoid spiking CPU / disk I/O
+                break;
             }
         }
 
-        // 3. Process sessions in uploading/ stage
-        if let Ok(uploading_sessions) = spool_mgr.list_sessions(SpoolState::Uploading) {
-            for sid in uploading_sessions {
+        // 3. Process sessions in uploading/ stage sequentially
+        if let Ok(mut uploading_sessions) = spool_mgr.list_sessions(SpoolState::Uploading) {
+            uploading_sessions.sort();
+            if let Some(sid) = uploading_sessions.into_iter().next() {
                 if let Err(e) =
                     process_uploading_session(&spool_mgr, &client, &sid, &runtime.machine_id).await
                 {
@@ -394,7 +567,7 @@ async fn process_uploading_session(
     enrolled_machine_id: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let session_dir = spool_mgr.session_path(SpoolState::Uploading, session_id);
-    let staging_dir = session_dir.join("_packaging");
+    let staging_dir = resolve_session_staging_dir(spool_mgr.base_path(), &session_dir, session_id);
     let chunks_dir = staging_dir.join("chunks");
     let manifest_path = chunks_dir.join("manifest.json");
 
@@ -508,15 +681,31 @@ async fn process_uploading_session(
                 if resp.status.eq_ignore_ascii_case("SESSION_ACCEPTED")
                     || resp.status.eq_ignore_ascii_case("accepted")
                 {
-                    let _ = spool_mgr.transition(
-                        session_id,
-                        SpoolState::Uploading,
-                        SpoolState::Uploaded,
-                    );
                     info!(
-                        "Session {} verified and accepted by server. Moved to uploaded.",
+                        "Session {} verified and accepted by server. Purging local raw session and chunks...",
                         session_id
                     );
+                    if let Err(e) = fs::remove_dir_all(&session_dir) {
+                        warn!(
+                            "Could not immediately remove session dir {}: {}; moving to uploaded",
+                            session_id, e
+                        );
+                        let _ = spool_mgr.transition(
+                            session_id,
+                            SpoolState::Uploading,
+                            SpoolState::Uploaded,
+                        );
+                    } else {
+                        info!(
+                            "Session {} local raw data purged successfully.",
+                            session_id
+                        );
+                    }
+
+                    if staging_dir.exists() {
+                        let _ = fs::remove_dir_all(&staging_dir);
+                        info!("Session {} staging chunks purged successfully.", session_id);
+                    }
                 } else {
                     warn!(
                         "Server returned unexpected status '{}' for session {}, moving to failed",
@@ -524,6 +713,9 @@ async fn process_uploading_session(
                     );
                     let _ =
                         spool_mgr.transition(session_id, SpoolState::Uploading, SpoolState::Failed);
+                    if staging_dir.exists() {
+                        let _ = fs::remove_dir_all(&staging_dir);
+                    }
                 }
             }
             Err(e) => {
@@ -581,6 +773,147 @@ fn disk_usage_percent(path: &Path) -> f64 {
 #[cfg(not(windows))]
 fn disk_usage_percent(_path: &Path) -> f64 {
     0.0
+}
+
+#[cfg(windows)]
+pub fn is_process_running(process_name: &str) -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+
+    unsafe {
+        let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
+            Ok(h) => h,
+            Err(_) => return true,
+        };
+        let mut entry = PROCESSENTRY32W::default();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+        if Process32FirstW(snapshot, &mut entry).is_ok() {
+            loop {
+                let len = entry
+                    .szExeFile
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(entry.szExeFile.len());
+                let exe = String::from_utf16_lossy(&entry.szExeFile[..len]);
+                if exe.eq_ignore_ascii_case(process_name) {
+                    let _ = CloseHandle(snapshot);
+                    return true;
+                }
+                if Process32NextW(snapshot, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = CloseHandle(snapshot);
+        false
+    }
+}
+
+#[cfg(not(windows))]
+pub fn is_process_running(_process_name: &str) -> bool {
+    true
+}
+
+#[cfg(windows)]
+pub fn cleanup_stale_instances(process_name: &str) {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+
+    let my_pid = std::process::id();
+    unsafe {
+        let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
+            Ok(h) => h,
+            Err(_) => return,
+        };
+        let mut entry = PROCESSENTRY32W::default();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+        if Process32FirstW(snapshot, &mut entry).is_ok() {
+            loop {
+                if entry.th32ProcessID != my_pid {
+                    let len = entry
+                        .szExeFile
+                        .iter()
+                        .position(|&c| c == 0)
+                        .unwrap_or(entry.szExeFile.len());
+                    let exe = String::from_utf16_lossy(&entry.szExeFile[..len]);
+                    if exe.eq_ignore_ascii_case(process_name) {
+                        if let Ok(proc_handle) =
+                            OpenProcess(PROCESS_TERMINATE, false, entry.th32ProcessID)
+                        {
+                            let _ = TerminateProcess(proc_handle, 1);
+                            let _ = CloseHandle(proc_handle);
+                            warn!(
+                                "Terminated duplicate/stale {} process (PID: {})",
+                                process_name, entry.th32ProcessID
+                            );
+                        }
+                    }
+                }
+                if Process32NextW(snapshot, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = CloseHandle(snapshot);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn cleanup_stale_instances(_process_name: &str) {}
+
+fn spawn_agent_companion(config_path: &Path) {
+    let current_exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => {
+            warn!("Failed to determine current exe path: {}", e);
+            return;
+        }
+    };
+    let parent_dir = match current_exe.parent() {
+        Some(p) => p,
+        None => return,
+    };
+    let agent_exe = parent_dir.join("trajectory-agent.exe");
+    if !agent_exe.is_file() {
+        warn!("trajectory-agent.exe not found at {}", agent_exe.display());
+        return;
+    }
+
+    let mut cmd = std::process::Command::new(&agent_exe);
+    cmd.arg("--config").arg(config_path);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    match cmd.spawn() {
+        Ok(_) => info!("Successfully auto-respawned trajectory-agent.exe"),
+        Err(e) => warn!("Failed to auto-respawn trajectory-agent.exe: {}", e),
+    }
+}
+
+fn sync_auto_restart_flag(spool_root: &Path, auto_restart: bool) {
+    let flag_path = spool_root.join("auto_restart_disabled.flag");
+    if auto_restart {
+        if flag_path.exists() {
+            let _ = std::fs::remove_file(&flag_path);
+            info!("Server enabled auto-restart; removed auto_restart_disabled.flag");
+        }
+    } else {
+        if !flag_path.exists() {
+            let _ = std::fs::write(&flag_path, b"disabled_by_server");
+            warn!("Server disabled auto-restart; created auto_restart_disabled.flag");
+        }
+    }
 }
 
 fn find_chunk_path(chunks_dir: &Path, chunk_index: usize, file_name: &str) -> PathBuf {
@@ -684,5 +1017,45 @@ mod tests {
 
         assert_eq!(load_device_token(&path).unwrap(), None);
         assert!(!path.exists(), "Corrupted token file should have been removed");
+    }
+
+    #[test]
+    fn test_machine_upload_jitter_is_deterministic_and_bounded() {
+        let j1 = machine_upload_jitter_secs("MACHINE-01");
+        let j2 = machine_upload_jitter_secs("MACHINE-01");
+        assert_eq!(j1, j2);
+        assert!(j1 >= 5 && j1 <= 65);
+
+        let j3 = machine_upload_jitter_secs("EDIT-KIEN-2");
+        assert!(j3 >= 5 && j3 <= 65);
+    }
+
+    #[test]
+    fn test_run_spool_janitor_purges_uploaded_sessions_and_legacy_packaging() {
+        let dir = tempfile::tempdir().unwrap();
+        let spool_mgr = SpoolDirectoryManager::new(dir.path()).unwrap();
+
+        // 1. Create a dummy uploaded session
+        let uploaded_dir = spool_mgr.session_path(SpoolState::Uploaded, "SESSION_OLD_01");
+        fs::create_dir_all(&uploaded_dir).unwrap();
+        fs::write(uploaded_dir.join("test.txt"), "data").unwrap();
+        assert!(uploaded_dir.exists());
+
+        // 2. Create a pending_upload session with legacy _packaging folder
+        let pending_dir = spool_mgr.session_path(SpoolState::PendingUpload, "SESSION_PENDING_01");
+        let legacy_pkg = pending_dir.join("_packaging");
+        fs::create_dir_all(&legacy_pkg).unwrap();
+        fs::write(legacy_pkg.join("bad.tar.zst"), "huge data").unwrap();
+        assert!(legacy_pkg.exists());
+
+        // Run janitor
+        run_spool_janitor(&spool_mgr);
+
+        // Uploaded session must be completely purged
+        assert!(!uploaded_dir.exists());
+
+        // Legacy _packaging inside pending session must be purged
+        assert!(!legacy_pkg.exists());
+        assert!(pending_dir.exists());
     }
 }

@@ -5,6 +5,7 @@ import {
   fetchMachines,
   formatOnlineDuration,
   loginDashboard,
+  setMachineAutoRestart,
 } from './machine-dashboard.mjs';
 
 type MachinePresence = {
@@ -14,6 +15,7 @@ type MachinePresence = {
   lastSeenAt: string | null;
   onlineSeconds: number;
   status: 'online' | 'offline';
+  autoRestart: boolean;
 };
 
 const REFRESH_INTERVAL_MS = 30_000;
@@ -31,6 +33,24 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [signingIn, setSigningIn] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+
+  const toggleAutoRestart = async (machine: MachinePresence) => {
+    const nextState = !machine.autoRestart;
+    setUpdatingId(machine.machineId);
+    try {
+      await setMachineAutoRestart(machine.machineId, nextState);
+      setMachines((prev) =>
+        prev.map((m) =>
+          m.machineId === machine.machineId ? { ...m, autoRestart: nextState } : m
+        )
+      );
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Failed to update auto-restart.');
+    } finally {
+      setUpdatingId(null);
+    }
+  };
 
   const refresh = useCallback(async () => {
     try {
@@ -131,6 +151,7 @@ export default function App() {
                 <th style={styles.cell}>Status</th>
                 <th style={styles.cell}>Last seen</th>
                 <th style={styles.cell}>Online time</th>
+                <th style={styles.cell}>Auto Restart</th>
               </tr>
             </thead>
             <tbody>
@@ -148,6 +169,28 @@ export default function App() {
                   </td>
                   <td style={styles.cell}>{displayLastSeen(machine.lastSeenAt)}</td>
                   <td style={styles.cell}>{formatOnlineDuration(machine.onlineSeconds)}</td>
+                  <td style={styles.cell}>
+                    <button
+                      type="button"
+                      onClick={() => void toggleAutoRestart(machine)}
+                      disabled={updatingId === machine.machineId}
+                      style={{
+                        ...styles.toggleBtn,
+                        background: machine.autoRestart ? '#059669' : '#b91c1c',
+                      }}
+                      title={
+                        machine.autoRestart
+                          ? 'Auto-Restart is ON. Click to disable (allows stopping on client).'
+                          : 'Auto-Restart is OFF. Click to enable watchdog protection.'
+                      }
+                    >
+                      {updatingId === machine.machineId
+                        ? 'Updating…'
+                        : machine.autoRestart
+                        ? 'ON (Watchdog)'
+                        : 'OFF (Can Stop)'}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -177,4 +220,14 @@ const styles: Record<string, CSSProperties> = {
   loginCard: { width: 'min(100%, 380px)', display: 'grid', gap: '12px', padding: '28px', border: '1px solid #334155', borderRadius: '10px', background: '#1e293b' },
   loginLabel: { fontWeight: 700 },
   password: { padding: '10px', borderRadius: '6px', border: '1px solid #475569', background: '#0f172a', color: '#f8fafc' },
+  toggleBtn: {
+    border: 0,
+    borderRadius: '4px',
+    padding: '6px 12px',
+    cursor: 'pointer',
+    color: '#ffffff',
+    fontWeight: 600,
+    fontSize: '12px',
+  },
 };
+

@@ -23,8 +23,8 @@ pub fn create_tar_zstd_archive(
     let mut uncompressed_size = 0u64;
     let mut file_list = Vec::new();
 
-    // Recursively add all files in directory
-    for entry in walkdir(src)? {
+    // Recursively add all files in directory, skipping any archive/staging artifacts
+    for entry in walkdir(src, dst)? {
         let rel_path = entry.strip_prefix(src).unwrap_or(&entry);
         let rel_str = rel_path.to_string_lossy().replace('\\', "/");
 
@@ -57,14 +57,31 @@ pub fn extract_tar_zstd_archive(
     Ok(())
 }
 
-fn walkdir(dir: &Path) -> std::io::Result<Vec<PathBuf>> {
+fn walkdir(dir: &Path, exclude_dst: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut files = Vec::new();
     if dir.is_dir() {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
             let path = entry.path();
+            let name = entry.file_name();
+            let name_str = name.to_string_lossy();
+
+            // Ignore temporary, staging, or packaging directories and files
+            if name_str == "_packaging"
+                || name_str == "_staging"
+                || name_str == "chunks"
+                || name_str.ends_with(".tar.zst")
+                || name_str.ends_with(".tmp")
+            {
+                continue;
+            }
+
+            if path == exclude_dst {
+                continue;
+            }
+
             if path.is_dir() {
-                files.extend(walkdir(&path)?);
+                files.extend(walkdir(&path, exclude_dst)?);
             } else {
                 files.push(path);
             }
@@ -105,5 +122,27 @@ mod tests {
         extract_tar_zstd_archive(&archive_path, extract_dir.path()).unwrap();
         assert!(extract_dir.path().join("events.raw.ndjson").exists());
         assert!(extract_dir.path().join("session.db").exists());
+    }
+
+    #[test]
+    fn test_tar_zstd_ignores_packaging_and_temp_files() {
+        let src_dir = tempdir().unwrap();
+        let out_dir = src_dir.path().join("_packaging");
+        std::fs::create_dir_all(&out_dir).unwrap();
+
+        std::fs::write(src_dir.path().join("events.raw.ndjson"), "data").unwrap();
+        std::fs::write(src_dir.path().join("session.db"), "data").unwrap();
+
+        // Put artifacts inside _packaging
+        std::fs::write(out_dir.join("chunk_00000.bin"), "chunk data").unwrap();
+        let archive_path = out_dir.join("session.tar.zst");
+
+        let (_uncompressed, _compressed, files) =
+            create_tar_zstd_archive(src_dir.path(), &archive_path, 3).unwrap();
+
+        assert_eq!(files.len(), 2);
+        assert!(files.contains(&"events.raw.ndjson".to_string()));
+        assert!(files.contains(&"session.db".to_string()));
+        assert!(!files.iter().any(|f| f.contains("_packaging")));
     }
 }

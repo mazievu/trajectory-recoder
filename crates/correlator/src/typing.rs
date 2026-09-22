@@ -22,7 +22,7 @@ struct ActiveTypingBurst {
 
 impl Default for TypingBurstAggregator {
     fn default() -> Self {
-        Self::new(Duration::from_millis(500))
+        Self::new(Duration::from_millis(1000))
     }
 }
 
@@ -178,10 +178,10 @@ impl TypingBurstAggregator {
     }
 }
 
-fn is_modifier_key(vk_code: u32) -> bool {
+pub(crate) fn is_modifier_key(vk_code: u32) -> bool {
     matches!(vk_code, 0x10 | 0x11 | 0x12 | 0xA0..=0xA5)
 }
 
-fn is_text_input_key(vk_code: u32) -> bool {
+pub(crate) fn is_text_input_key(vk_code: u32) -> bool {
     matches!(vk_code, 0x20 | 0x30..=0x5A | 0x60..=0x6F | 0xBA..=0xDF)
 }

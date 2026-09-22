@@ -6,6 +6,7 @@
  * @property {string | null} lastSeenAt
  * @property {number} onlineSeconds
  * @property {'online' | 'offline'} status
+ * @property {boolean} autoRestart
  */
 
 const MACHINES_PATH = '/api/v1/machines';
@@ -61,6 +62,7 @@ export function normalizeMachinesResponse(payload) {
       lastSeenAt: typeof record.last_seen_at === 'string' ? record.last_seen_at : null,
       onlineSeconds: Math.floor(onlineSeconds),
       status: record.is_online ? 'online' : 'offline',
+      autoRestart: typeof record.auto_restart === 'boolean' ? record.auto_restart : true,
     };
   });
 }
@@ -105,4 +107,27 @@ export async function loginDashboard(password, fetchImpl = fetch) {
   if (!response.ok) {
     throw new Error(`Dashboard login failed (${response.status})`);
   }
+}
+
+/**
+ * Updates the auto-restart policy for a specific machine.
+ *
+ * @param {string} machineId
+ * @param {boolean} autoRestart
+ * @param {typeof fetch} fetchImpl
+ */
+export async function setMachineAutoRestart(machineId, autoRestart, fetchImpl = fetch) {
+  const response = await fetchImpl(`/api/v1/machines/${encodeURIComponent(machineId)}/auto-restart`, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ auto_restart: Boolean(autoRestart) }),
+  });
+  if (response.status === 401 || response.status === 403) {
+    throw new DashboardAuthenticationError();
+  }
+  if (!response.ok) {
+    throw new Error(`Failed to update auto-restart policy (${response.status})`);
+  }
+  return response.json();
 }

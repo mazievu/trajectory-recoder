@@ -7,6 +7,7 @@ import {
   formatOnlineDuration,
   loginDashboard,
   normalizeMachinesResponse,
+  setMachineAutoRestart,
 } from './machine-dashboard.mjs';
 
 test('normalizes the protected machines endpoint response for the dashboard', () => {
@@ -20,6 +21,7 @@ test('normalizes the protected machines endpoint response for the dashboard', ()
         online_duration_secs: 7265,
         status: 'ACTIVE',
         is_online: true,
+        auto_restart: true,
       },
     ],
   });
@@ -32,6 +34,7 @@ test('normalizes the protected machines endpoint response for the dashboard', ()
       lastSeenAt: '2026-08-30T10:00:00Z',
       onlineSeconds: 7265,
       status: 'online',
+      autoRestart: true,
     },
   ]);
 });
@@ -91,5 +94,23 @@ test('submits the operator password only to the same-origin login endpoint', asy
     credentials: 'include',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ password: 'correct horse battery staple' }),
+  });
+});
+
+test('sends auto-restart toggle to protected machines endpoint', async () => {
+  let requestedUrl;
+  let requestedOptions;
+  await setMachineAutoRestart('WS-01', false, async (url, init) => {
+    requestedUrl = url;
+    requestedOptions = init;
+    return new Response(JSON.stringify({ status: 'ok', auto_restart: false }), { status: 200 });
+  });
+
+  assert.equal(requestedUrl, '/api/v1/machines/WS-01/auto-restart');
+  assert.deepEqual(requestedOptions, {
+    method: 'PUT',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ auto_restart: false }),
   });
 });

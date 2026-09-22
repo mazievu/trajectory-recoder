@@ -2,11 +2,15 @@
 
 pub mod drag_drop;
 pub mod engine;
+pub mod mouse_move;
+pub mod raw_aggregator;
 pub mod scroll;
 pub mod typing;
 
 pub use drag_drop::DragDropStateMachine;
 pub use engine::CorrelationEngine;
+pub use mouse_move::MouseMoveAggregator;
+pub use raw_aggregator::RawEventAggregator;
 pub use scroll::ScrollBurstAggregator;
 pub use typing::TypingBurstAggregator;
 
@@ -363,6 +367,227 @@ mod tests {
             assert_eq!(tp.text, "[UNOBSERVED_TEXT]");
             assert_eq!(tp.character_count, 2);
             assert!(tp.is_redacted);
+        }
+    }
+
+    #[test]
+    fn test_mouse_move_aggregator_continuous() {
+        let mut agg = MouseMoveAggregator::new(Duration::from_millis(1000));
+        let ts = DualTimestamp::now();
+
+        // Feed 50 continuous mouse moves from (100, 100) to (200, 200)
+        for i in 0..50 {
+            let raw = RawEvent::new(
+                i + 1,
+                GlobalEventId::new(500 + i),
+                ts,
+                "mach1".to_string(),
+                1,
+                "user1".to_string(),
+                EventSource::Win32Hook,
+                i + 1,
+                RawEventPayload::Mouse(RawMouseEvent {
+                    event_type: "MOUSE_MOVE".to_string(),
+                    button: MouseButton::None,
+                    physical_x: 100 + i as i32 * 2,
+                    physical_y: 100 + i as i32 * 2,
+                    normalized_x: 0.1,
+                    normalized_y: 0.1,
+                    delta_x: 0.0,
+                    delta_y: 0.0,
+                    monitor_id: 1,
+                    coords: Point2D::new(100 + i as i32 * 2, 100 + i as i32 * 2, 0.1, 0.1),
+                    state: String::new(),
+                }),
+            );
+            let flushed = agg.on_event(&raw);
+            assert!(flushed.is_none(), "Continuous moves should be buffered");
+        }
+
+        // Flush active stream
+        let flushed = agg.flush().expect("Expected trajectory to be flushed");
+        if let RawEventPayload::Mouse(ref m) = flushed.payload {
+            assert_eq!(m.event_type, "MOUSE_MOVE");
+            assert_eq!(m.physical_x, 198); // 100 + 49 * 2
+            assert_eq!(m.physical_y, 198);
+            assert_eq!(m.delta_x, 98.0);
+            assert_eq!(m.delta_y, 98.0);
+            assert!(m.state.contains("start=(100, 100)"));
+            assert!(m.state.contains("end=(198, 198)"));
+            assert!(m.state.contains("samples=50"));
+        } else {
+            panic!("Expected Mouse payload");
+        }
+    }
+
+    #[test]
+    fn test_mouse_move_aggregator_interrupted_by_click() {
+        let mut agg = MouseMoveAggregator::new(Duration::from_millis(1000));
+        let ts = DualTimestamp::now();
+
+        // 1. Move to (150, 150)
+        let move_ev = RawEvent::new(
+            1,
+            GlobalEventId::new(600),
+            ts,
+            "mach1".to_string(),
+            1,
+            "user1".to_string(),
+            EventSource::Win32Hook,
+            1,
+            RawEventPayload::Mouse(RawMouseEvent {
+                event_type: "MOUSE_MOVE".to_string(),
+                button: MouseButton::None,
+                physical_x: 150,
+                physical_y: 150,
+                normalized_x: 0.15,
+                normalized_y: 0.15,
+                delta_x: 0.0,
+                delta_y: 0.0,
+                monitor_id: 1,
+                coords: Point2D::new(150, 150, 0.15, 0.15),
+                state: String::new(),
+            }),
+        );
+        agg.on_event(&move_ev);
+
+        // 2. Click arrives -> interrupts mouse move stream immediately
+        let click_ev = RawEvent::new(
+            2,
+            GlobalEventId::new(601),
+            ts,
+            "mach1".to_string(),
+            1,
+            "user1".to_string(),
+            EventSource::Win32Hook,
+            2,
+            RawEventPayload::Mouse(RawMouseEvent {
+                event_type: "CLICK".to_string(),
+                button: MouseButton::Left,
+                physical_x: 150,
+                physical_y: 150,
+                normalized_x: 0.15,
+                normalized_y: 0.15,
+                delta_x: 0.0,
+                delta_y: 0.0,
+                monitor_id: 1,
+                coords: Point2D::new(150, 150, 0.15, 0.15),
+                state: "PRESSED".to_string(),
+            }),
+        );
+        let flushed = agg
+            .on_event(&click_ev)
+            .expect("Interruption by click should flush trajectory");
+        if let RawEventPayload::Mouse(ref m) = flushed.payload {
+            assert_eq!(m.event_type, "MOUSE_MOVE");
+            assert_eq!(m.physical_x, 150);
+            assert_eq!(m.physical_y, 150);
+            assert!(m.state.contains("samples=1"));
+        } else {
+            panic!("Expected Mouse payload");
+        }
+    }
+
+    #[test]
+    fn test_mouse_move_aggregator_timeout() {
+        let mut agg = MouseMoveAggregator::new(Duration::from_millis(50));
+        let ts = DualTimestamp::now();
+
+        let move_ev = RawEvent::new(
+            1,
+            GlobalEventId::new(700),
+            ts,
+            "mach1".to_string(),
+            1,
+            "user1".to_string(),
+            EventSource::Win32Hook,
+            1,
+            RawEventPayload::Mouse(RawMouseEvent {
+                event_type: "MOUSE_MOVE".to_string(),
+                button: MouseButton::None,
+                physical_x: 300,
+                physical_y: 300,
+                normalized_x: 0.3,
+                normalized_y: 0.3,
+                delta_x: 0.0,
+                delta_y: 0.0,
+                monitor_id: 1,
+                coords: Point2D::new(300, 300, 0.3, 0.3),
+                state: String::new(),
+            }),
+        );
+        agg.on_event(&move_ev);
+        assert!(agg.check_timeout().is_none());
+
+        sleep(Duration::from_millis(60));
+        let flushed = agg.check_timeout().expect("Should flush on timeout");
+        if let RawEventPayload::Mouse(ref m) = flushed.payload {
+            assert_eq!(m.physical_x, 300);
+        } else {
+            panic!("Expected Mouse payload");
+        }
+    }
+
+    #[test]
+    fn test_raw_event_aggregator_typing_burst() {
+        let mut agg = RawEventAggregator::new(Duration::from_millis(1000), Duration::from_millis(1000));
+        let ts = DualTimestamp::now();
+
+        let keys = ['A', 'B', 'C', 'D'];
+        for (i, &ch) in keys.iter().enumerate() {
+            let ev = RawEvent::new(
+                i as u64 + 1,
+                GlobalEventId::new(800 + i as u64),
+                ts,
+                "mach1".to_string(),
+                1,
+                "user1".to_string(),
+                EventSource::Win32Hook,
+                i as u64 + 1,
+                RawEventPayload::Keyboard(RawKeyboardEvent {
+                    event_type: "KEY_DOWN".to_string(),
+                    vk_code: ch as u32,
+                    scan_code: 0,
+                    key_name: ch.to_string(),
+                    modifiers: Default::default(),
+                    is_injected: false,
+                }),
+            );
+            let out = agg.process_raw_event(ev);
+            assert!(out.is_empty(), "Typing keystrokes should be buffered");
+        }
+
+        // Enter key interrupts typing burst
+        let enter_ev = RawEvent::new(
+            10,
+            GlobalEventId::new(810),
+            ts,
+            "mach1".to_string(),
+            1,
+            "user1".to_string(),
+            EventSource::Win32Hook,
+            10,
+            RawEventPayload::Keyboard(RawKeyboardEvent {
+                event_type: "KEY_DOWN".to_string(),
+                vk_code: 0x0D, // VK_RETURN
+                scan_code: 0,
+                key_name: "ENTER".to_string(),
+                modifiers: Default::default(),
+                is_injected: false,
+            }),
+        );
+        let out = agg.process_raw_event(enter_ev);
+        assert_eq!(out.len(), 2, "Expected flushed typing burst followed by ENTER key");
+        if let RawEventPayload::Keyboard(ref kb) = out[0].payload {
+            assert!(kb.key_name.contains("[UNOBSERVED_TEXT]"));
+            assert!(kb.key_name.contains("chars=4"));
+        } else {
+            panic!("Expected Keyboard payload for burst");
+        }
+        if let RawEventPayload::Keyboard(ref kb) = out[1].payload {
+            assert_eq!(kb.key_name, "ENTER");
+        } else {
+            panic!("Expected Keyboard payload for enter");
         }
     }
 }

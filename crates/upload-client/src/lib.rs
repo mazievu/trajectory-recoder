@@ -3,9 +3,9 @@
 pub mod client;
 
 pub use client::{
-    CompleteSessionResponse, HeartbeatRequest, InitiateSessionRequest, InitiateSessionResponse,
-    RegisterMachineRequest, RegisterMachineResponse, SessionStatusResponse, UploadClient,
-    UploadClientConfig, UploadError,
+    CompleteSessionResponse, HeartbeatRequest, HeartbeatResponse, InitiateSessionRequest,
+    InitiateSessionResponse, RegisterMachineRequest, RegisterMachineResponse, SessionStatusResponse,
+    UploadClient, UploadClientConfig, UploadError,
 };
 
 #[cfg(test)]

@@ -341,6 +341,7 @@ pub struct StoredMachine {
     pub online_since_at: DateTime<Utc>,
     pub disk_usage_pct: f64,
     pub active_session_id: Option<String>,
+    pub auto_restart: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -356,6 +357,7 @@ pub struct MachinePresence {
     pub is_online: bool,
     pub disk_usage_pct: f64,
     pub active_session_id: Option<String>,
+    pub auto_restart: bool,
 }
 
 const MACHINE_ONLINE_TIMEOUT: Duration = Duration::seconds(90);
@@ -382,6 +384,7 @@ impl StoredMachine {
             is_online,
             disk_usage_pct: self.disk_usage_pct,
             active_session_id: self.active_session_id.clone(),
+            auto_restart: self.auto_restart,
         }
     }
 }
@@ -404,6 +407,7 @@ pub struct AppState {
     pub server_api_token: String,
     pub dashboard_assets_dir: PathBuf,
     pub mem_state: Arc<RwLock<InMemoryServerState>>,
+    pub complete_session_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
 impl AppState {
@@ -439,6 +443,7 @@ impl AppState {
             server_api_token: config.dashboard_api_token,
             dashboard_assets_dir: config.dashboard_assets_dir,
             mem_state: Arc::new(RwLock::new(InMemoryServerState::default())),
+            complete_session_semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
         })
     }
 
@@ -453,6 +458,7 @@ impl AppState {
             server_api_token: "test_dashboard_api_token_1234567890".to_string(),
             dashboard_assets_dir: PathBuf::from("/opt/trajectory/dashboard"),
             mem_state: Arc::new(RwLock::new(InMemoryServerState::default())),
+            complete_session_semaphore: Arc::new(tokio::sync::Semaphore::new(4)),
         }
     }
 }
@@ -604,6 +610,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/v1/machines", get(list_machines_handler))
         .route("/api/v1/machines/register", post(register_machine_handler))
         .route("/api/v1/machines/heartbeat", post(heartbeat_handler))
+        .route(
+            "/api/v1/machines/:machine_id/auto-restart",
+            put(set_machine_auto_restart_handler),
+        )
         .route("/api/v1/sessions", post(initiate_session_handler))
         .route(
             "/api/v1/sessions/:session_id/chunks/:chunk_index",
@@ -714,6 +724,7 @@ struct DatabaseMachinePresence {
     online_since_at: DateTime<Utc>,
     disk_usage_pct: f32,
     active_session_id: Option<String>,
+    auto_restart: bool,
 }
 
 impl DatabaseMachinePresence {
@@ -738,6 +749,7 @@ impl DatabaseMachinePresence {
             is_online,
             disk_usage_pct: self.disk_usage_pct.into(),
             active_session_id: self.active_session_id,
+            auto_restart: self.auto_restart,
         }
     }
 }
@@ -762,7 +774,8 @@ pub async fn list_machines_handler(
                 COALESCE(m.last_heartbeat_at, m.registered_at, CURRENT_TIMESTAMP) AS last_seen_at,
                 COALESCE(m.online_since_at, m.registered_at, CURRENT_TIMESTAMP) AS online_since_at,
                 COALESCE(latest.disk_usage_pct, 0.0)::REAL AS disk_usage_pct,
-                latest.active_session_id
+                latest.active_session_id,
+                COALESCE(m.auto_restart, TRUE) AS auto_restart
             FROM machines m
             LEFT JOIN LATERAL (
                 SELECT disk_usage_pct, active_session_id
@@ -865,10 +878,9 @@ pub async fn register_machine_handler(
     stored_payload.registration_token = registration_token_digest;
     let mut mem = state.mem_state.write();
     let now = Utc::now();
-    let existing_registered_at = mem
-        .machines
-        .get(&payload.machine_id)
-        .map(|machine| machine.registered_at);
+    let existing_machine = mem.machines.get(&payload.machine_id);
+    let existing_registered_at = existing_machine.map(|m| m.registered_at);
+    let existing_auto_restart = existing_machine.map(|m| m.auto_restart);
     mem.machines.insert(
         payload.machine_id.clone(),
         StoredMachine {
@@ -878,6 +890,7 @@ pub async fn register_machine_handler(
             online_since_at: now,
             disk_usage_pct: 0.0,
             active_session_id: None,
+            auto_restart: existing_auto_restart.unwrap_or(true),
         },
     );
 
@@ -909,7 +922,7 @@ pub async fn heartbeat_handler(
     );
 
     let now = Utc::now();
-    if let Some(ref pool) = state.db {
+    let auto_restart = if let Some(ref pool) = state.db {
         let updated = sqlx::query(
             r#"
             UPDATE machines
@@ -951,6 +964,16 @@ pub async fn heartbeat_handler(
             error!(%error, "failed to persist heartbeat");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
+
+        let row: Option<(bool,)> = sqlx::query_as(
+            "SELECT auto_restart FROM machines WHERE machine_id = $1"
+        )
+        .bind(&payload.machine_id)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None);
+
+        row.map(|(ar,)| ar).unwrap_or(true)
     } else {
         let mut mem = state.mem_state.write();
         let machine = mem
@@ -963,9 +986,58 @@ pub async fn heartbeat_handler(
         machine.last_seen_at = now;
         machine.disk_usage_pct = payload.disk_usage_pct;
         machine.active_session_id = payload.active_session_id.clone();
+        machine.auto_restart
+    };
+
+    Ok(Json(serde_json::json!({
+        "status": "ok",
+        "auto_restart": auto_restart
+    })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetAutoRestartRequest {
+    pub auto_restart: bool,
+}
+
+pub async fn set_machine_auto_restart_handler(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    axum::extract::Path(machine_id): axum::extract::Path<String>,
+    Json(payload): Json<SetAutoRestartRequest>,
+) -> Result<Json<serde_json::Value>, StatusCode> {
+    require_dashboard_access(&headers, &state)?;
+
+    if let Some(ref pool) = state.db {
+        let updated = sqlx::query("UPDATE machines SET auto_restart = $1 WHERE machine_id = $2")
+            .bind(payload.auto_restart)
+            .bind(&machine_id)
+            .execute(pool)
+            .await
+            .map_err(|error| {
+                error!(%error, "failed to update machine auto_restart in PostgreSQL");
+                StatusCode::INTERNAL_SERVER_ERROR
+            })?;
+        if updated.rows_affected() == 0 {
+            return Err(StatusCode::NOT_FOUND);
+        }
+    } else {
+        let mut mem = state.mem_state.write();
+        let machine = mem.machines.get_mut(&machine_id).ok_or(StatusCode::NOT_FOUND)?;
+        machine.auto_restart = payload.auto_restart;
     }
 
-    Ok(Json(serde_json::json!({ "status": "ok" })))
+    info!(
+        machine_id = %machine_id,
+        auto_restart = payload.auto_restart,
+        "Machine auto-restart setting updated"
+    );
+
+    Ok(Json(serde_json::json!({
+        "status": "ok",
+        "machine_id": machine_id,
+        "auto_restart": payload.auto_restart
+    })))
 }
 
 pub async fn initiate_session_handler(
@@ -1259,6 +1331,17 @@ pub async fn complete_session_handler(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     require_session_owner(&state, &headers, &session_id).await?;
+
+    // Rate-limit concurrent complete_session operations to prevent RAM & S3 exhaustion
+    let _permit = state
+        .complete_session_semaphore
+        .acquire()
+        .await
+        .map_err(|error| {
+            error!(%error, session_id, "failed to acquire session completion semaphore");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
     let (expected_chunks, total_size_bytes, archive_sha256, chunk_keys) = if let Some(pool) =
         &state.db
     {

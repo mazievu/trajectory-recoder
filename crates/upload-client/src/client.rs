@@ -78,6 +78,17 @@ pub struct HeartbeatRequest {
     pub active_session_id: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HeartbeatResponse {
+    pub status: String,
+    #[serde(default = "default_auto_restart")]
+    pub auto_restart: bool,
+}
+
+fn default_auto_restart() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InitiateSessionRequest {
     pub session_id: String,
@@ -211,7 +222,7 @@ impl UploadClient {
         Ok(res)
     }
 
-    pub async fn send_heartbeat(&self, req: &HeartbeatRequest) -> Result<(), UploadError> {
+    pub async fn send_heartbeat(&self, req: &HeartbeatRequest) -> Result<HeartbeatResponse, UploadError> {
         self.send_heartbeat_with_token(req, self.device_token.as_deref().unwrap_or_default())
             .await
     }
@@ -220,7 +231,7 @@ impl UploadClient {
         &self,
         req: &HeartbeatRequest,
         token: &str,
-    ) -> Result<(), UploadError> {
+    ) -> Result<HeartbeatResponse, UploadError> {
         let url = format!("{}/api/v1/machines/heartbeat", self.server_base_url);
         let mut request = self.client.post(&url);
         if !token.is_empty() {
@@ -237,7 +248,8 @@ impl UploadClient {
             });
         }
 
-        Ok(())
+        let res: HeartbeatResponse = resp.json().await?;
+        Ok(res)
     }
 
     pub async fn initiate_session(

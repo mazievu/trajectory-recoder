@@ -6,7 +6,7 @@ use clipboard_win::ClipboardManager;
 use config::{ClientRuntimeConfig, default_client_config_path};
 use core_types::event::RawEventPayload;
 use core_types::metadata::TargetMetadata;
-use correlator::CorrelationEngine;
+use correlator::{CorrelationEngine, RawEventAggregator};
 use diagnostics::{DiagnosticsConfig, init_diagnostics};
 use event_bus::bus::{EventBus, EventBusConfig};
 use file_events_win::FileWatcherManager;
@@ -120,33 +120,154 @@ fn resolve_config_path(explicit_path: Option<PathBuf>) -> PathBuf {
     std::path::absolute(&resolved).unwrap_or(resolved)
 }
 
-fn spawn_uploader_companion(config_path: &Path) -> Option<tokio::process::Child> {
-    let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?;
-    let uploader = dir.join("trajectory-uploader.exe");
-    if !uploader.is_file() {
-        return None;
-    }
-    info!("Starting background uploader companion: {}", uploader.display());
-    #[cfg(windows)]
-    {
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        let mut cmd = tokio::process::Command::new(uploader);
-        cmd.arg("--config").arg(config_path);
-        cmd.current_dir(dir);
-        cmd.creation_flags(CREATE_NO_WINDOW);
-        cmd.kill_on_drop(true);
-        cmd.spawn().ok()
-    }
-    #[cfg(not(windows))]
-    {
-        let mut cmd = tokio::process::Command::new(uploader);
-        cmd.arg("--config").arg(config_path);
-        cmd.current_dir(dir);
-        cmd.kill_on_drop(true);
-        cmd.spawn().ok()
+#[cfg(windows)]
+pub fn is_process_running(process_name: &str) -> bool {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+
+    unsafe {
+        let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
+            Ok(h) => h,
+            Err(_) => return true,
+        };
+        let mut entry = PROCESSENTRY32W::default();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+        if Process32FirstW(snapshot, &mut entry).is_ok() {
+            loop {
+                let len = entry
+                    .szExeFile
+                    .iter()
+                    .position(|&c| c == 0)
+                    .unwrap_or(entry.szExeFile.len());
+                let exe = String::from_utf16_lossy(&entry.szExeFile[..len]);
+                if exe.eq_ignore_ascii_case(process_name) {
+                    let _ = CloseHandle(snapshot);
+                    return true;
+                }
+                if Process32NextW(snapshot, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = CloseHandle(snapshot);
+        false
     }
 }
+
+#[cfg(not(windows))]
+pub fn is_process_running(_process_name: &str) -> bool {
+    true
+}
+
+fn spawn_uploader_companion(config_path: &Path) {
+    let current_exe = match std::env::current_exe() {
+        Ok(exe) => exe,
+        Err(e) => {
+            warn!("Failed to determine current exe path: {}", e);
+            return;
+        }
+    };
+    let dir = match current_exe.parent() {
+        Some(d) => d,
+        None => return,
+    };
+    let uploader = dir.join("trajectory-uploader.exe");
+    if !uploader.is_file() {
+        warn!("trajectory-uploader.exe not found at {}", uploader.display());
+        return;
+    }
+    info!("Starting background uploader companion: {}", uploader.display());
+    let mut cmd = std::process::Command::new(&uploader);
+    cmd.arg("--config").arg(config_path);
+    cmd.current_dir(dir);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+    match cmd.spawn() {
+        Ok(_) => info!("Successfully spawned companion trajectory-uploader.exe"),
+        Err(e) => warn!("Failed to spawn companion trajectory-uploader.exe: {}", e),
+    }
+}
+
+#[cfg(windows)]
+fn acquire_single_instance_lock() -> Option<windows::Win32::Foundation::HANDLE> {
+    use windows::Win32::Foundation::{GetLastError, ERROR_ALREADY_EXISTS};
+    use windows::Win32::System::Threading::CreateMutexW;
+    use windows::core::w;
+
+    unsafe {
+        let handle = CreateMutexW(None, true, w!("Local\\TrajectoryCaptureAgentSingleInstance"));
+        match handle {
+            Ok(h) => {
+                if GetLastError() == ERROR_ALREADY_EXISTS {
+                    None
+                } else {
+                    Some(h)
+                }
+            }
+            Err(_) => None,
+        }
+    }
+}
+
+#[cfg(windows)]
+pub fn cleanup_stale_instances(process_name: &str) {
+    use windows::Win32::Foundation::CloseHandle;
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
+        TH32CS_SNAPPROCESS,
+    };
+    use windows::Win32::System::Threading::{OpenProcess, TerminateProcess, PROCESS_TERMINATE};
+
+    let my_pid = std::process::id();
+    unsafe {
+        let snapshot = match CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) {
+            Ok(h) => h,
+            Err(_) => return,
+        };
+        let mut entry = PROCESSENTRY32W::default();
+        entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+
+        if Process32FirstW(snapshot, &mut entry).is_ok() {
+            loop {
+                if entry.th32ProcessID != my_pid {
+                    let len = entry
+                        .szExeFile
+                        .iter()
+                        .position(|&c| c == 0)
+                        .unwrap_or(entry.szExeFile.len());
+                    let exe = String::from_utf16_lossy(&entry.szExeFile[..len]);
+                    if exe.eq_ignore_ascii_case(process_name) {
+                        if let Ok(proc_handle) =
+                            OpenProcess(PROCESS_TERMINATE, false, entry.th32ProcessID)
+                        {
+                            let _ = TerminateProcess(proc_handle, 1);
+                            let _ = CloseHandle(proc_handle);
+                            warn!(
+                                "Terminated duplicate/stale {} process (PID: {})",
+                                process_name, entry.th32ProcessID
+                            );
+                        }
+                    }
+                }
+                if Process32NextW(snapshot, &mut entry).is_err() {
+                    break;
+                }
+            }
+        }
+        let _ = CloseHandle(snapshot);
+    }
+}
+
+#[cfg(not(windows))]
+pub fn cleanup_stale_instances(_process_name: &str) {}
+
 
 fn capture_config_path(args: &[String]) -> Result<PathBuf, String> {
     let opts = parse_cli_options(args)?;
@@ -199,6 +320,18 @@ async fn target_metadata_for_event(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    #[cfg(windows)]
+    let _single_instance_guard = match acquire_single_instance_lock() {
+        Some(guard) => guard,
+        None => {
+            eprintln!("Another instance of trajectory-agent is already running. Exiting cleanly.");
+            return Ok(());
+        }
+    };
+
+    #[cfg(windows)]
+    cleanup_stale_instances("trajectory-agent.exe");
+
     let args: Vec<String> = std::env::args().collect();
     let cli_opts = match parse_cli_options(&args) {
         Ok(opts) => opts,
@@ -229,23 +362,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config_path = resolve_config_path(cli_opts.config_path);
     info!("Using configuration: {}", config_path.display());
-    let uploader_companion_task = {
-        let companion_cfg = config_path.clone();
-        tokio::spawn(async move {
-            loop {
-                if let Some(mut child) = spawn_uploader_companion(&companion_cfg) {
-                    let _ = child.wait().await;
-                    warn!("Companion uploader process exited. Restarting in 5s...");
-                }
-                tokio::time::sleep(Duration::from_secs(5)).await;
-            }
-        })
-    };
     let runtime_config = ClientRuntimeConfig::from_file(&config_path)?;
     let identity = RuntimeIdentity::from_config(&runtime_config);
     let machine_id = identity.machine_id.as_str();
     let user_id = identity.user_id.as_str();
     let windows_session_id = 1u32;
+    let spool_root = runtime_config.spool_dir.clone();
+
+    let uploader_companion_task = {
+        let companion_cfg = config_path.clone();
+        let watchdog_spool = spool_root.clone();
+        tokio::spawn(async move {
+            let mut last_spawn = std::time::Instant::now() - Duration::from_secs(10);
+            // Initial check: if uploader is not running, spawn it
+            if !watchdog_spool.join("auto_restart_disabled.flag").exists()
+                && !is_process_running("trajectory-uploader.exe")
+            {
+                spawn_uploader_companion(&companion_cfg);
+                last_spawn = std::time::Instant::now();
+            }
+            loop {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                let auto_restart_disabled =
+                    watchdog_spool.join("auto_restart_disabled.flag").exists();
+                if !auto_restart_disabled && !is_process_running("trajectory-uploader.exe") {
+                    if last_spawn.elapsed() >= Duration::from_secs(5) {
+                        warn!("trajectory-uploader.exe is NOT running! Watchdog auto-respawning uploader...");
+                        spawn_uploader_companion(&companion_cfg);
+                        last_spawn = std::time::Instant::now();
+                    }
+                }
+            }
+        })
+    };
     let is_running = Arc::new(AtomicBool::new(true));
     let is_running_ctrlc = is_running.clone();
     tokio::spawn(async move {
@@ -261,7 +410,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bus_recv = event_bus.receiver();
 
     // 2. Initialize Spool & Session Persistence
-    let spool_root = runtime_config.spool_dir.clone();
     let global_id_allocator = session::GlobalEventIdAllocator::new(&spool_root)?;
     let global_seq = global_id_allocator.current_atomic();
 
@@ -366,11 +514,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 8. Main Event Consumption and Correlation Loop
     let mut last_rotation_check = std::time::Instant::now();
+    let mut raw_aggregator = RawEventAggregator::default();
 
     while is_running.load(Ordering::Relaxed) {
         // Drain events from priority event bus with 50ms timeout
         match bus_recv.recv_timeout(Duration::from_millis(50)) {
-            Ok((priority, mut raw_event)) => {
+            Ok((_priority, mut raw_event)) => {
                 // Query UIA only for semantic events, never for raw mouse movement.
                 let target_metadata =
                     target_metadata_for_event(&uia_inspector, &raw_event.payload).await;
@@ -384,14 +533,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let _ = session_mgr.write_canonical_action(&action);
                 }
 
-                // Raw events are only persisted after correlation has consumed
-                // the in-memory event. This prevents disk artifacts from
-                // becoming a reconstructable keyboard log.
+                // Raw events are persisted through client-side aggregation
+                // (merging continuous mouse moves <= 1s and keystrokes <= 1s)
+                // to prevent raw log disk bloat while preserving trajectory data.
                 privacy_engine.redact_raw_event(&mut raw_event);
-                let _ = session_mgr.write_raw_event(&raw_event);
-                if print_raw_log {
-                    if let Ok(json_str) = serde_json::to_string(&raw_event) {
-                        println!("[RAW LOG] {json_str}");
+                let ready_events = raw_aggregator.process_raw_event(raw_event);
+                for ev in ready_events {
+                    let _ = session_mgr.write_raw_event(&ev);
+                    if print_raw_log {
+                        if let Ok(json_str) = serde_json::to_string(&ev) {
+                            println!("[RAW LOG] {json_str}");
+                        }
                     }
                 }
             }
@@ -401,6 +553,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 for mut action in flushed_actions {
                     privacy_engine.redact_canonical_action(&mut action);
                     let _ = session_mgr.write_canonical_action(&action);
+                }
+
+                // Periodic flush of raw aggregated mouse/keyboard streams if idle timeout (1.0s) exceeded
+                let flushed_raw = raw_aggregator.check_timeout();
+                for ev in flushed_raw {
+                    let _ = session_mgr.write_raw_event(&ev);
+                    if print_raw_log {
+                        if let Ok(json_str) = serde_json::to_string(&ev) {
+                            println!("[RAW LOG] {json_str}");
+                        }
+                    }
                 }
             }
         }
@@ -414,6 +577,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     rotated_old_session.as_str()
                 );
                 correlation_engine.set_session_id(session_mgr.current_session_id().clone());
+            }
+        }
+    }
+
+    // Flush any pending in-flight aggregated mouse move or typing events before session finalization
+    let remaining_raw = raw_aggregator.flush_all();
+    for ev in remaining_raw {
+        let _ = session_mgr.write_raw_event(&ev);
+        if print_raw_log {
+            if let Ok(json_str) = serde_json::to_string(&ev) {
+                println!("[RAW LOG] {json_str}");
             }
         }
     }

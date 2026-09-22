@@ -761,3 +761,110 @@ async fn test_server_complete_missing_chunks_rejected() {
 
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
+
+#[tokio::test]
+async fn test_machine_auto_restart_control() {
+    let state = AppState::new_in_memory();
+    let app = create_router(state.clone());
+
+    // 1. Register machine
+    let reg_payload = RegisterRequest {
+        machine_id: "MACHINE_WATCHDOG".to_string(),
+        hostname: "host-wd".to_string(),
+        os_version: "Windows 11".to_string(),
+        registration_token: state.enrollment_token.clone(),
+    };
+
+    let reg_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/machines/register")
+                .header("Content-Type", "application/json")
+                .body(Body::from(serde_json::to_string(&reg_payload).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(reg_resp.status(), StatusCode::OK);
+    let reg_body = axum::body::to_bytes(reg_resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let reg_json: serde_json::Value = serde_json::from_slice(&reg_body).unwrap();
+    let token = reg_json["device_jwt"].as_str().unwrap();
+
+    // 2. Default heartbeat -> auto_restart should be true
+    let heartbeat = HeartbeatRequest {
+        machine_id: "MACHINE_WATCHDOG".to_string(),
+        disk_usage_pct: 10.0,
+        active_session_id: None,
+    };
+    let hb_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/machines/heartbeat")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::from(serde_json::to_string(&heartbeat).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(hb_resp.status(), StatusCode::OK);
+    let hb_body = axum::body::to_bytes(hb_resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let hb_json: serde_json::Value = serde_json::from_slice(&hb_body).unwrap();
+    assert_eq!(hb_json["status"], "ok");
+    assert_eq!(hb_json["auto_restart"], true);
+
+    // 3. Admin disables auto_restart via PUT /api/v1/machines/MACHINE_WATCHDOG/auto-restart
+    let toggle_req = serde_json::json!({ "auto_restart": false });
+    let toggle_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("PUT")
+                .uri("/api/v1/machines/MACHINE_WATCHDOG/auto-restart")
+                .header("Content-Type", "application/json")
+                .header("X-Server-Token", &state.server_api_token)
+                .body(Body::from(serde_json::to_string(&toggle_req).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(toggle_resp.status(), StatusCode::OK);
+    let toggle_body = axum::body::to_bytes(toggle_resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let toggle_json: serde_json::Value = serde_json::from_slice(&toggle_body).unwrap();
+    assert_eq!(toggle_json["auto_restart"], false);
+
+    // 4. Next heartbeat from machine -> receives auto_restart: false
+    let hb_resp2 = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/api/v1/machines/heartbeat")
+                .header("Content-Type", "application/json")
+                .header("Authorization", format!("Bearer {token}"))
+                .body(Body::from(serde_json::to_string(&heartbeat).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(hb_resp2.status(), StatusCode::OK);
+    let hb_body2 = axum::body::to_bytes(hb_resp2.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let hb_json2: serde_json::Value = serde_json::from_slice(&hb_body2).unwrap();
+    assert_eq!(hb_json2["auto_restart"], false);
+}
