@@ -1,0 +1,17 @@
+{
+  "NGOCMINH-PC": {
+    "Timestamp": "2026-09-22 14:05:45",
+    "MachineName": "NGOCMINH-PC",
+    "UserName": "admin",
+    "IPAddress": "192.168.1.24",
+    "CPU": "Intel(R) Core(TM) i7-14700K",
+    "Cores": 20,
+    "Threads": 28,
+    "RAM_Total_GB": 31.8,
+    "RAM_Free_GB": 9.7,
+    "GPU": "NVIDIA GeForce RTX 4060 Ti + Intel(R) UHD Graphics 770",
+    "Disks": "C: 47.9/499.1 GB (90%) | D: 749.1/931.5 GB (20%) | E: 898.5/931.5 GB (4%) | F: 267.2/430.6 GB (38%)",
+    "OS_Version": "Microsoft Windows 11 Pro",
+    "received_at": "2026-09-22 14:05:46"
+  }
+}

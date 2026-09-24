@@ -1,0 +1,2 @@
+MachineName,UserName,IPAddress,CPU,Cores,Threads,RAM_Total_GB,RAM_Free_GB,GPU,Disks,OS_Version,received_at
+"NGOCMINH-PC","admin","192.168.1.24","Intel(R) Core(TM) i7-14700K","20","28","31.8","9.7","NVIDIA GeForce RTX 4060 Ti + Intel(R) UHD Graphics 770","C: 47.9/499.1 GB (90%) | D: 749.1/931.5 GB (20%) | E: 898.5/931.5 GB (4%) | F: 267.2/430.6 GB (38%)","Microsoft Windows 11 Pro","2026-09-22 14:05:46"

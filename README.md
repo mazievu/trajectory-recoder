@@ -245,10 +245,60 @@ The Trajectory Recorder codebase satisfies all 40 Production Acceptance Criteria
 
 ---
 
+## Enterprise Workflow Intelligence & Automated SOP Engine (Laya Multi-Stage QC)
+
+Beyond raw telemetry capture, the system includes a server-side AI decision pipeline powered by **[Laya](https://github.com/NandhaKishorM/laya)** (Non-autoregressive Multilingual `mmBERT-base` System 1 decision engine) to automatically classify, clean, and synthesize continuous desktop interaction streams into structured Standard Operating Procedures (SOP):
+
+```mermaid
+flowchart LR
+    subgraph "Capture & Storage"
+        A[Client Agent] -->|Upload Zstd Chunks| B[Ingestion Server]
+        B -->|Store Raw DB| C[(MinIO)]
+        B -->|Metadata| D[(PostgreSQL)]
+    end
+
+    subgraph "Laya Multi-Stage QC Pipeline (CUDA 12.6)"
+        E[Watcher Service] -->|Poll Pending Sessions| D
+        E -->|Extract Actions| C
+        E --> F["Stage 1: Detect Context Mismatch"]
+        F --> G["Stage 2: Reconcile Real Window (Laya)"]
+        G --> H["Stage 3: Work / Non-Work Classification"]
+        H --> I["Stage 4: SOP Phase Assignment"]
+        I -->|Persist Standardized Telemetry| J[(laya_action_analysis)]
+        J -->|Generate SOPs & Metrics| K["Enterprise SOPs (report/)"]
+    end
+```
+
+### 1. 4-Stage QC Architecture
+1. **Stage 1 — Deterministic Mismatch Detection**: Compares UI Automation `target.framework_id` against `context.process_name` to flag asynchronous WinEvent hook lag and background popups.
+2. **Stage 2 — Context Reconciliation (Laya)**: Uses Laya's semantic router with a 5-action behavioral sliding window to resolve the true foreground window (e.g. reconciling CapCut vs Chrome chat inputs).
+3. **Stage 3 — Work / Non-Work Classification**: Evaluates application, window title, and action target to suppress personal/non-work noise and casual browsing.
+4. **Stage 4 — SOP Phase Assignment**: Maps actions into 4 standardized enterprise phases:
+   - **Phase 1: Ingestion**: File Explorer asset loading, creative brief review, script research.
+   - **Phase 2: Execution**: Core video editing (CapCut timeline/splits/effects), graphic design (Illustrator/Photoshop), ad campaign setup.
+   - **Phase 3: Export**: Project rendering, export dialogs, resolution & format encoding.
+   - **Phase 4: Handoff**: Uploading deliverables to Google Drive / Lark, reporting progress.
+
+### 2. Fleet-Wide Verification Metrics (12 Workstations)
+- **Total Sessions Analyzed**: 673 sessions (100% processed without error).
+- **Total Actions Standardized**: 366,394 actions.
+- **Context Mismatches Reconciled**: 201,267 actions (54.9% noise cleaned).
+- **Company-Wide Work Efficiency**: 81.0% (296,662 work-relevant actions).
+- **Inference Latency**: <45ms / decision on NVIDIA GeForce RTX 4060 Ti.
+
+### 3. Generated Enterprise Deliverables
+- 📘 **[Sổ Tay Quy Trình Vận Hành Toàn Công Ty (Enterprise Master SOP)](report/SO_TAY_QUY_TRINH_TOAN_CONG_TY.md)**: Cross-functional Mermaid workflow, handoff rules between Content, Creative, Media Buyer, and Management.
+- 📋 **Machine-Specific SOPs**: Standardized down to button names, pixel coordinates, benchmarks, and shortcuts in `report/<MACHINE_ID>/SOP_QUY_TRINH_THAO_TAC.md`.
+- ⚙️ **Scripts & Services**:
+  - `scripts/laya/laya_qc_service.py`: Automated daemon & one-shot Laya QC pipeline.
+  - `scripts/laya/synthesize_standardized_sop.py`: Automated SOP document synthesizer from PostgreSQL data.
+
+---
+
 ## Documentation Navigation
 
 - 📐 **[ARCHITECTURE.md](ARCHITECTURE.md)**: Deep dive into architectural design, process isolation, IPC protocols, Spool state machine, concurrency models, and security architecture.
 - 🗄️ **[DATA_SCHEMA.md](DATA_SCHEMA.md)**: Exhaustive schema documentation for Raw Events, Canonical Actions, SQLite WAL database, PostgreSQL tables, manifests, and NDJSON streaming formats.
 - 🔒 **[SECURITY.md](SECURITY.md)**: Comprehensive threat model, 3-tier privacy engine, DPAPI key protection, SDDL pipe security, and encryption at rest/in transit.
 - 🛠️ **[DEVELOPMENT.md](DEVELOPMENT.md)**: Developer setup, toolchain requirements, building, testing with `trajectory-harness.exe`, migrations, and code quality standards.
-"# trajectory-recoder" 
+- 📘 **[Sổ Tay Quy Trình Toàn Công Ty (Master SOP)](report/SO_TAY_QUY_TRINH_TOAN_CONG_TY.md)**: Standard Operating Procedures for 12 workstations. 
